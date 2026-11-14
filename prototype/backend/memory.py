@@ -284,7 +284,7 @@ if __name__ == "__main__":
             },
         ],
         reached_end=False,
-        meta={"source": "llm", "model": "qwen3.5-35b"},
+        meta={"source": "llm", "model": "qwen3.6-35b"},
     )
     print(f"✅ Saved journey #{jid}")
 

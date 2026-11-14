@@ -22,12 +22,12 @@
 //   ④ 启动前健康检查 8770/api/health，失败则快速报错退出
 //
 // 复跑说明（GPT 评审要求写明）：
-//   前置：原型后端 uvicorn 监听 8770（backend 目录启动），静态页 8899 可选
-//   依赖：playwright-core（装在原型目录 node_modules）、Chrome 路径见下
-//   命令：cd C:\Users\smith\WorkBuddy\2026-11-03-19-18-08\agent-3d-cockpit
-//         NODE_PATH=.\node_modules node D:\code\ai\agent-3d-cockpit-research\tools\runtime_audit.js
+//   前置：原型后端 uvicorn 监听 8770（backend 目录启动），静态页由 8770 同源提供
+//   依赖：playwright-core（装在 prototype/node_modules）；Chrome 路径经 prototype/chrome_helper.js 解析
+//   命令：cd <仓库根>
+//         NODE_PATH=prototype/node_modules node tools/runtime_audit.js
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const { resolveChromePath } = require('../prototype/chrome_helper');
 
 const EXPECTED_DEGRADE_REASONS = new Set(['model_busy', 'llm_disabled', 'llm_failed']);
 
@@ -154,7 +154,7 @@ function reportRouteB(events, total, v) {
 async function main() {
   if (!(await healthCheck())) process.exit(1);
 
-  const browser = await chromium.launch({ headless: true, executablePath: CHROME });
+  const browser = await chromium.launch({ headless: true, executablePath: resolveChromePath() });
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('http://localhost:8770/', { waitUntil: 'domcontentloaded' });

@@ -159,7 +159,7 @@ ts             ISO8601 填写时间
 
 > M-EXPERIMENT §10 允许「真实用户优先、代理被试降级标注」。以下为系统自身作为代理被试的端到端走查，验证装置可跑通、并产出 M3 清单草稿基线；**非真人 M2 数据，s1–s5 为 agent 依真实系统行为代理评估，不得与真人数据混用**。
 
-- **工具**：`agent-3d-cockpit/walkthrough_real.js`（playwright-core + chromium-1234，驱动真实 8770 + 8082；`walkthrough_real.json` 为产出，schema 对齐 m-instrument：含 `meta.arm='proxy-agent'/human=false`、`steps`、`m3_proxy`）。
+- **工具**：`prototype/walkthrough_real.js`（playwright-core，Chrome 路径经 `prototype/chrome_helper.js` 解析，驱动真实 8770 + 8082；`walkthrough_real.json` 为产出，schema 对齐 m-instrument：含 `meta.arm='proxy-agent'/human=false`、`steps`、`m3_proxy`）。
 - **结果（2026-11-13，真实 35B）**：主执行 `status=done / forecast_kind=fast / exec_source=llm / 13.7s / 136字 / chain=["output"]`；到达后铺出 4 块下一步未来路牌；P1（时间线/候选对比/导出）P2（风景回看/键盘选路）全可触发；第二次执行中途 `_stopGen` 进入 `interrupted` 态并在结果卡如实显示「这一步已由你主动停止…不生成已完成路牌」，不伪造完成。共 **15/15 通过，0 JS 错误**。
 - **M3 代理草稿基线**：s1–s5=6，found_product/named_step/recited_evidence=1（代理评估，须真人复测）。
 

@@ -12,7 +12,7 @@
  */
 const { chromium } = require('playwright-core');
 const fs = require('fs');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const { resolveChromePath } = require('./chrome_helper');
 const URL = 'http://127.0.0.1:8770/';
 const TASK = '国内电力交易市场的格局';
 const OUT = 'walkthrough_real.json';
@@ -27,7 +27,7 @@ const check = (name, ok, extra = '') => {
 
 (async () => {
   const browser = await chromium.launch({
-    executablePath: EXE, headless: true,
+    executablePath: resolveChromePath(), headless: true,
     args: ['--no-sandbox', '--use-gl=swiftshader'],
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
