@@ -253,7 +253,7 @@ v0.2 的前瞻推理是前端模拟的——路形和候选都是写死的。v0.
 ```bash
 # 1. 启动 llama.cpp server (端口 8080)
 # 2. 启动后端
-cd backend && "D:/tools/Python312/python.exe" -m uvicorn server:app --host 0.0.0.0 --port 8770
+cd backend && python -m uvicorn server:app --host 0.0.0.0 --port 8770   # 解释器可用 COCKPIT_PYTHON 环境变量覆盖
 # 3. 打开 index.html — 自动连接后端，输入问题即可推演
 ```
 

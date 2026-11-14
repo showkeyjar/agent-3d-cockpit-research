@@ -37,7 +37,7 @@ echo "== 后端 Python 单测 =="
 if command -v pytest >/dev/null 2>&1; then
   pytest -q forecaster/tests/ backend/test_cancel_backend.py || fail=$((fail+1))
 else
-  echo "（未装 pytest，跳过；用 /d/tools/Python312/python -m pytest 手动跑）"
+  echo "（未装 pytest，跳过；进入 prototype 目录用 python -m pytest forecaster/tests/ backend/ 手动跑）"
 fi
 
 echo ""

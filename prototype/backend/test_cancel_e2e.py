@@ -5,7 +5,7 @@ test_cancel_e2e.py — v0.9.16 真 WS + 真 35B 端到端冒烟（可选，非�
 验证「cancel 消息确实被新后端识别、流式 HTTP 真被掐断、槽位被释放」。
 需要 8082 空闲；单槽拥塞时结果可能走本地兜底，此时请稍后单独复跑。
 
-运行：D:/tools/Python312/python.exe backend/test_cancel_e2e.py
+运行：python backend/test_cancel_e2e.py   （解释器可用 COCKPIT_PYTHON 覆盖）
 """
 from __future__ import annotations
 

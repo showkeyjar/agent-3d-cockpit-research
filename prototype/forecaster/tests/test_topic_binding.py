@@ -8,7 +8,7 @@ _local_forecast。旧版 intent_map 是一套硬编码万金油动作（写代�
 本测试锁死该回归点。
 
 不依赖 pytest：直接 `python test_topic_binding.py` 运行。
-Run: cd forecaster/tests && D:/tools/Python312/python test_topic_binding.py
+Run: cd forecaster/tests && python test_topic_binding.py   （解释器可用 COCKPIT_PYTHON 覆盖）
 """
 import os
 import sys
