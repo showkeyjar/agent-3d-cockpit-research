@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "prototype_ver": "v0.9.21",
+    "instrument_schema": "m-instrument.html",
+    "arm": "proxy-agent",
+    "human": false,
+    "note": "系统自身作为代理被试的降级走查，非真人 M2 数据；s1–s5 为 agent 依真实系统行为代理评估",
+    "task": "国内电力交易市场的格局",
+    "ts": "2026-11-13T06:31:00.253Z"
+  },
+  "steps": [
+    {
+      "step": "forecast",
+      "candCount": 4,
+      "candLabels": [
+        "针对「你关注的这件事」直接动手",
+        "围绕「你关注的这件事」查资料",
+        "先问清楚",
+        "分步推理"
+      ]
+    },
+    {
+      "step": "execute",
+      "wall_ms": 14895,
+      "status": "done",
+      "forecast_kind": "fast",
+      "exec_source": "llm",
+      "elapsed_ms": 13750,
+      "tokens": 84,
+      "chars": 136,
+      "chain": [
+        "output"
+      ],
+      "label": "针对「你关注的这件事」直接动手",
+      "parent_run_id": null,
+      "output_head": "国内电力交易市场呈现多层级、多模式格局，由国家统一监管，省级电力交易中心主导。主要交易类型包括年度长协、月度集中竞价、实",
+      "future_count": 0
+    },
+    {
+      "step": "p1_capabilities",
+      "timeline": {
+        "open": true,
+        "sub": "1 轮 · 0 次分叉 · 0 轮为本地/前端兜底（模型未参与推演）"
+      },
+      "compare": {
+        "open": true
+      },
+      "export": {
+        "ok": true,
+        "len": 2358
+      }
+    },
+    {
+      "step": "p2_capabilities",
+      "scnCount": 20,
+      "scnCards": 20,
+      "scnOk": true,
+      "scnErr": "",
+      "kbOk": true,
+      "kbErr": ""
+    },
+    {
+      "step": "p0_abort",
+      "runCountBefore": 1,
+      "entered": true,
+      "afterCancel": {
+        "totalRuns": 2,
+        "secondSeq": 2,
+        "secondStatus": "interrupted",
+        "interruptedFlag": true,
+        "interruptText": "这一步已由你主动停止，它没有完成：不生成「已完成」路牌、不推进到下一段路，也不会记入完成轨迹。下方只保留中断前模型已真实生成的内容。",
+        "arrivalShown": true
+      }
+    }
+  ],
+  "m3_proxy": {
+    "s1": 6,
+    "s2": 6,
+    "s3": 6,
+    "s4": 6,
+    "s5": 6,
+    "found_product": 1,
+    "named_step": 1,
+    "recited_evidence": 1,
+    "think_aloud": "代理走查：真实 35B 推演四态=fast，执行来源=llm，到达后铺出 4 块下一步路牌；时间线/候选对比/导出/键盘选路/风景回看均可触发；第二次执行中途取消进入 interrupted 且不铺到达牌。",
+    "notes": "非真人被试；s1–s5 为 agent 依真实系统行为代理评估，仅作 M3 清单草稿基线，须真人 M2 复测。"
+  }
+}

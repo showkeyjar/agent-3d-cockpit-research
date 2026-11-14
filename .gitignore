@@ -1,0 +1,25 @@
+# ── 敏感记忆（含身份/硬件/工作背景，禁止外推）──
+.workbuddy/
+
+# ── 依赖 / 构建产物 ──
+node_modules/
+__pycache__/
+*.pyc
+
+# ── 运行时产物与密钥 ──
+*.log
+*.db
+server.config.json
+
+# ── 调试残留（原型目录，已清洁剔除，以下防止误加）──
+_*.js
+_shot_*.png
+shot_*.png
+shot_*.js
+log_*.txt
+camera_diag.json
+debug_kb.js
+start.bat
+_probe_near.js
+_verify_llm_overwrite.js
+test_allbranches.js

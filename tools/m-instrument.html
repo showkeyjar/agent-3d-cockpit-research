@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-3d-cockpit · M1/M2 对照实验采集工具</title>
+<style>
+  :root{
+    --bg:#0f1419; --card:#1a2029; --line:#2a3340; --txt:#e6edf3; --mut:#8b98a5;
+    --acc:#5fe0ff; --ok:#79e6b0; --warn:#ffd27d; --bad:#ff8c8c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--txt);padding:24px}
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:15px;margin:22px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .hidden{display:none!important}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#222b36;color:var(--txt);
+         border-radius:8px;padding:9px 16px;margin:6px 6px 0 0}
+  button.primary{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
+  button.ghost{background:transparent}
+  label.chk{display:flex;gap:10px;align-items:flex-start;margin:10px 0}
+  textarea,input[type=text]{width:100%;background:#0d1218;border:1px solid var(--line);color:var(--txt);
+         border-radius:8px;padding:9px 11px;font:inherit;resize:vertical}
+  .q{margin:16px 0}
+  .q .lab{font-weight:600;margin-bottom:6px}
+  .q .hint{color:var(--mut);font-size:12px;margin-bottom:6px}
+  .scale{display:flex;gap:6px;flex-wrap:wrap}
+  .scale label{flex:1;min-width:64px;text-align:center;border:1px solid var(--line);border-radius:8px;
+       padding:8px 4px;cursor:pointer;background:#0d1218;font-size:12px}
+  .scale label input{display:none}
+  .scale label.on{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
+  .scale .ends{width:100%;display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:4px}
+  .yn{display:flex;gap:8px}
+  .yn label{border:1px solid var(--line);border-radius:8px;padding:6px 18px;cursor:pointer;background:#0d1218}
+  .yn label.on{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
+  .yn label input{display:none}
+  .arm{font-size:26px;font-weight:700}
+  .arm.A{color:var(--warn)} .arm.B{color:var(--ok)}
+  .url{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0d1218;border:1px solid var(--line);
+       border-radius:8px;padding:10px 12px;word-break:break-all;color:var(--acc)}
+  .task{background:#0d1218;border:1px dashed var(--line);border-radius:8px;padding:12px 14px;white-space:pre-wrap;margin-top:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:#0d1218;color:var(--mut);font-weight:600}
+  .pass{color:var(--ok)} .fail{color:var(--bad)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.p{background:rgba(121,230,176,.15);color:var(--ok)}
+  .pill.f{background:rgba(255,140,140,.15);color:var(--bad)}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222b36;border:1px solid var(--line);
+         padding:10px 18px;border-radius:8px;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  code{background:#0d1218;padding:1px 5px;border-radius:4px;color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ 屏 0：知情同意 ============ -->
+  <section id="scrConsent">
+    <h1>M 阶段对照实验 · 数据采集</h1>
+    <div class="sub">agent-3d-cockpit 研究 · 实质进展感对照（RESEARCH-PLAN.md §3 / M-EXPERIMENT.md）</div>
+    <div class="card">
+      <p><b>研究目的</b>：比较「执行透明的智能体界面」与「执行不透明的界面」在「实质进展感」上的差异。</p>
+      <p><b>你要做的</b>：打开分配给你的原型链接，按给定任务操作并边做边说出想法（出声思维），完成后填写一份约 2 分钟的量表。</p>
+      <p><b>数据</b>：仅保存在你本机浏览器与导出的文件里，不上传任何服务器；你可随时退出，数据由实验员在导出后清空。</p>
+      <label class="chk"><input type="checkbox" id="consentChk">
+        <span>我已阅读并同意参与（数据仅本地留存，可随时退出）。</span></label>
+      <button class="primary" id="btnStart" disabled>开始 →</button>
+    </div>
+  </section>
+
+  <!-- ============ 屏 1：随机分配 + 任务 ============ -->
+  <section id="scrAssign" class="hidden">
+    <h1>第 <span id="pNo">1</span> 位被试 · 分配</h1>
+    <div class="card">
+      <div>随机分配组别：<span class="arm" id="armLabel">—</span>
+        <span id="armDesc" class="sub" style="margin-left:8px"></span></div>
+      <div class="row" style="margin-top:8px">
+        <button class="ghost" data-arm="A">改为 A（不透明）</button>
+        <button class="ghost" data-arm="B">改为 B（透明）</button>
+        <span class="sub">实验员可手动平衡两组人数</span>
+      </div>
+      <h2>① 打开原型（分配链接）</h2>
+      <div class="url" id="armUrl"></div>
+      <h2>② 本次任务脚本</h2>
+      <div class="task" id="taskText"></div>
+      <p class="sub">把上面的任务原文粘进原型输入框开始。完成后点下方按钮填量表。</p>
+      <button class="primary" id="btnToSurvey">任务已完成，去填量表 →</button>
+    </div>
+  </section>
+
+  <!-- ============ 屏 2：量表 ============ -->
+  <section id="scrSurvey" class="hidden">
+    <h1>量表填写</h1>
+    <div class="sub">请按真实感受作答（1=完全不同意 … 7=完全同意）。</div>
+    <div class="card" id="scaleBox"></div>
+
+    <div class="card">
+      <h2>行为结果（客观佐证）</h2>
+      <div class="q"><div class="lab">你能找到本次任务产生的「产物 / 结果」吗？</div>
+        <div class="yn" data-yn="found_product"><label><input type="radio" name="found_product" value="1">能</label>
+          <label><input type="radio" name="found_product" value="0">不能</label></div></div>
+      <div class="q"><div class="lab">你能指出是「哪一步 / 谁」带来了这个改变吗？</div>
+        <div class="yn" data-yn="named_step"><label><input type="radio" name="named_step" value="1">能</label>
+          <label><input type="radio" name="named_step" value="0">不能</label></div></div>
+      <div class="q"><div class="lab">你能复述出一条可核对依据（如耗时 / token / 来源 / 数据出处）吗？</div>
+        <div class="yn" data-yn="recited_evidence"><label><input type="radio" name="recited_evidence" value="1">能</label>
+          <label><input type="radio" name="recited_evidence" value="0">不能</label></div></div>
+    </div>
+
+    <div class="card">
+      <h2>定性备注</h2>
+      <div class="q"><div class="lab">出声思维摘要</div>
+        <textarea id="think_aloud" rows="3" placeholder="操作过程中你说的关键想法…"></textarea></div>
+      <div class="q"><div class="lab">Q1.2 归因访谈：你说「没/有进展」时，指的是？<span class="sub">（P2 看不到产物 / P3 说不清谁做的 / P4 没注意到 / 其他）</span></div>
+        <textarea id="interview_note" rows="2" placeholder="例如：主要是看不到它到底查了什么，所以不信任结果。"></textarea></div>
+      <div class="q"><div class="lab">其他备注</div>
+        <textarea id="notes" rows="2"></textarea></div>
+      <button class="primary" id="btnSubmit">提交本条记录 →</button>
+    </div>
+  </section>
+
+  <!-- ============ 屏 3：M3 清单 + 导出 ============ -->
+  <section id="scrDone" class="hidden">
+    <h1>提交完成 · M3 验收清单（本条）</h1>
+    <div class="card" id="m3box"></div>
+    <div class="card">
+      <div class="row">
+        <button class="primary" id="btnNext">下一位被试 →</button>
+        <button id="btnExportJson">导出本条 JSON</button>
+        <button id="btnExportAll">导出全部 CSV</button>
+        <button class="ghost" id="btnViewAll">查看已采集（<span id="cnt">0</span>）</button>
+      </div>
+      <p class="sub">数据暂存在本机浏览器（localStorage）。「导出全部 CSV」可归集多被试数据用于 §8 统计。</p>
+    </div>
+    <div class="card hidden" id="allBox"></div>
+  </section>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- 数据：任务脚本（满足 M0 双类型 + 缺数据版） ---------- */
+const TASKS = [
+  {type:'draft', text:
+'任务：国内电力交易市场的格局？\n1) 先「查资料」摸清现状；\n2) 再「对比分析」主要模式；\n3) 最后挑一条方向「重走」一次看真实结果。'},
+  {type:'data_with_input', text:
+'前置数据（样例，某省 12 个月）：\n月份,发电量,负荷,电价\n1,320,300,0.41\n2,310,295,0.40\n3,330,310,0.43\n4,300,280,0.39\n5,290,270,0.38\n6,340,330,0.45\n7,360,350,0.47\n8,355,345,0.46\n9,330,320,0.44\n10,300,290,0.40\n11,315,305,0.42\n12,325,315,0.43\n\n任务：基于这份给定数据，找出 1–2 处异常波动，并指出你判断的依据。'},
+  {type:'data_missing_input', text:
+'任务：基于我们的销售数据，找出异常波动并指出依据。\n（注意：本次不提供任何数据文件）\n观察点：界面能否准确传达「缺少输入」而非编造具体数字结论。'}
+];
+const ARM_URL = {
+  A:'http://127.0.0.1:8770/?mode=opaque',
+  B:'http://127.0.0.1:8770/'
+};
+const ARM_DESC = {
+  A:'执行不透明：只见「思考中…」+「已完成」，无结果卡/凭据/对比/时间线',
+  B:'执行透明：结果卡+凭据+候选对比+时间线回看+风景来源'
+};
+const SCALE = [
+  {k:'s1',c:'P1',t:'我相信这一步真正推进了我的任务'},
+  {k:'s2',c:'P2',t:'我能确认结果是真实可核对的'},
+  {k:'s3',c:'P3',t:'我知道是哪一步 / 谁带来这个改变'},
+  {k:'s4',c:'P4',t:'我在界面上注意到了这个改变'},
+  {k:'s5',c:'总体',t:'整体上我感到产生了实质进展（而非只是看起来忙）'}
+];
+const LS_KEY = 'm-exp-records';
+const PROTO_VER = 'v0.9.20';
+
+/* ---------- 状态 ---------- */
+let S = { arm:null, task:null, pid:null };
+
+/* ---------- 工具 ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),1800); }
+function uid(){ return 'P'+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36); }
+function getRecs(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }catch(e){ return []; } }
+function setRecs(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); }
+
+/* ---------- 流程 ---------- */
+$('#consentChk').addEventListener('change', e => $('#btnStart').disabled = !e.target.checked);
+$('#btnStart').addEventListener('click', ()=>{ S.pid = uid(); goAssign(); });
+
+function goAssign(){
+  // 随机 arm + 随机任务
+  S.arm = Math.random()<0.5 ? 'A' : 'B';
+  S.task = TASKS[Math.floor(Math.random()*TASKS.length)];
+  paintAssign();
+  $('#scrConsent').classList.add('hidden');
+  $('#scrAssign').classList.remove('hidden');
+}
+function paintAssign(){
+  $('#armLabel').textContent = '组 '+S.arm;
+  $('#armLabel').className = 'arm '+S.arm;
+  $('#armDesc').textContent = ARM_DESC[S.arm];
+  $('#armUrl').textContent = ARM_URL[S.arm];
+  $('#taskText').textContent = S.task.text;
+  $('#pNo').textContent = getRecs().length + 1;
+}
+$$('#scrAssign [data-arm]').forEach(b=>b.addEventListener('click',()=>{
+  S.arm = b.dataset.arm; paintAssign(); toast('已改为 组 '+S.arm);
+}));
+
+$('#btnToSurvey').addEventListener('click', ()=>{
+  $('#scrAssign').classList.add('hidden');
+  $('#scrSurvey').classList.remove('hidden');
+  if(!$('#scaleBox').children.length) buildScale();
+});
+
+function buildScale(){
+  const box = $('#scaleBox');
+  SCALE.forEach(it=>{
+    const q = document.createElement('div'); q.className='q';
+    q.innerHTML = `<div class="lab">${it.k} · <span style="color:var(--acc)">${it.c}</span>　${it.t}</div>
+      <div class="scale" data-scale="${it.k}">`+
+      [1,2,3,4,5,6,7].map(n=>`<label><input type="radio" name="${it.k}" value="${n}">${n}</label>`).join('')+
+      `</div><div class="scale"><span>完全不同意</span><span>完全同意</span></div>`;
+    box.appendChild(q);
+  });
+  $$('#scaleBox .scale label').forEach(l=>l.addEventListener('click',()=>{
+    const g=l.parentElement; $$('label',g).forEach(x=>x.classList.remove('on'));
+    l.classList.add('on'); l.querySelector('input').checked=true;
+  }));
+}
+
+$('#btnSubmit').addEventListener('click', ()=>{
+  // 收集
+  const rec = { pid:S.pid, arm:S.arm, task_type:S.task.type, prototype_ver:PROTO_VER, ts:new Date().toISOString() };
+  let ok=true;
+  SCALE.forEach(it=>{ const v=$(`input[name=${it.k}]:checked`); if(!v){ok=false;} else rec[it.k]=+v.value; });
+  ['found_product','named_step','recited_evidence'].forEach(k=>{
+    const v=$(`input[name=${k}]:checked`); rec[k]= v? +v.value : null; });
+  rec.think_aloud = $('#think_aloud').value.trim();
+  rec.interview_note = $('#interview_note').value.trim();
+  rec.notes = $('#notes').value.trim();
+  if(!ok){ toast('请完成 s1–s5 全部评分'); return; }
+  const all = getRecs(); all.push(rec); setRecs(all);
+  paintM3(rec);
+  $('#scrSurvey').classList.add('hidden');
+  $('#scrDone').classList.remove('hidden');
+  $('#cnt').textContent = all.length;
+  toast('已保存（本机）');
+});
+
+/* ---------- M3 清单（按本条参与者自动生成） ---------- */
+function paintM3(rec){
+  const pass = (b)=> b?'<span class="pill p">通过</span>':'<span class="pill f">未通过</span>';
+  const rows = [
+    ['路线 B 单步真实 LLM + token 流式','P1 真实性', rec.s1>=4, `s1=${rec.s1}`],
+    ['结果卡 + 执行凭据','P2 可核对', rec.s2>=4 && rec.found_product===1, `s2=${rec.s2} · 找到产物=${rec.found_product}`],
+    ['时间线回看 / 分叉重走 / 导出','P3 可追溯', rec.s3>=4 && rec.named_step===1, `s3=${rec.s3} · 指出步骤=${rec.named_step}`],
+    ['3D 到达节点 + 风景来源联动','P4 可感知', rec.s4>=4, `s4=${rec.s4}`],
+    ['透明呈现叠加真实执行','总体实质进展感', rec.s5>=4, `s5=${rec.s5}`],
+  ];
+  let h = `<table><tr><th>原型特性</th><th>判据</th><th>实验证据</th><th>结论</th></tr>`;
+  rows.forEach(r=> h += `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[3]}</td><td>${pass(r[2])}</td></tr>`);
+  h += `</table><p class="sub">阈值：对应 s≥4 且行为结果为「是」即判通过。逐项在 M-EXPERIMENT.md §9 汇总共识。</p>`;
+  $('#m3box').innerHTML = h;
+}
+
+/* ---------- 导出 ---------- */
+$('#btnNext').addEventListener('click', ()=>{
+  S = { arm:null, task:null, pid:uid() };
+  ['scrDone','scrSurvey','scrAssign'].forEach(s=>$(s).classList.add('hidden'));
+  $('#scrConsent').classList.remove('hidden');
+  $('#consentChk').checked=false; $('#btnStart').disabled=true;
+  $('#allBox').classList.add('hidden');
+});
+$('#btnExportJson').addEventListener('click', ()=>{
+  const recs=getRecs(); const last=recs[recs.length-1]; if(!last) return;
+  download('m-record-'+last.pid+'.json', JSON.stringify(last,null,2));
+});
+$('#btnExportAll').addEventListener('click', ()=>{
+  const recs=getRecs(); if(!recs.length){ toast('暂无数据'); return; }
+  download('m-records-all.csv', toCSV(recs));
+});
+$('#btnViewAll').addEventListener('click', ()=>{
+  const recs=getRecs(); const b=$('#allBox'); b.classList.toggle('hidden');
+  if(b.classList.contains('hidden')) return;
+  let h='<table><tr><th>pid</th><th>arm</th><th>task</th><th>s1</th><th>s2</th><th>s3</th><th>s4</th><th>s5</th><th>产物</th><th>步骤</th><th>依据</th></tr>';
+  recs.forEach(r=> h+=`<tr><td>${r.pid}</td><td>${r.arm}</td><td>${r.task_type}</td><td>${r.s1}</td><td>${r.s2}</td><td>${r.s3}</td><td>${r.s4}</td><td>${r.s5}</td><td>${r.found_product}</td><td>${r.named_step}</td><td>${r.recited_evidence}</td></tr>`);
+  h+='</table>'; b.innerHTML=h;
+});
+
+function toCSV(recs){
+  const cols=['pid','arm','task_type','s1','s2','s3','s4','s5','found_product','named_step','recited_evidence','think_aloud','interview_note','notes','prototype_ver','ts'];
+  const esc=v=>{ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  let out='\uFEFF'+cols.join(',')+'\n';
+  recs.forEach(r=> out+=cols.map(c=>esc(r[c])).join(',')+'\n');
+  return out;
+}
+function download(name, text){
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+</script>
+</body>
+</html>
