@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 深度诊断：逐层 travelFuture 深入，每层等「真实」未来候选(futCands>0)出现，
 // 报告未来牌夹角/距离/是否被遮挡/位置是否 NaN，捕捉「第二轮路牌消失/看不见」根因。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function metricsFn(){

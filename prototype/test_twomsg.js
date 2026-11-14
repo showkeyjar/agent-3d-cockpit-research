@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 双消息路径：发第一条消息→选分支→看未来牌(round1)；再发第二条消息(第二轮)→选分支→看未来牌是否还在
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function snap(){ const cp=window.__cockpit; const s=cp.signs||[];
   return { future:s.filter(x=>x.userData&&x.userData.branchId!==undefined&&x.userData.branchId<=-3).length,

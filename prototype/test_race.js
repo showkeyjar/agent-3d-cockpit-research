@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 竞态复现：让「第一轮」的 autoExploreNext fetch 故意很慢，使其在「第二轮」的有效 fetch 之后才返回，
 // 从而命中 autoExploreNext 守卫里的 clearFutureSigns()，把第二轮未来牌清掉 → 复现「第二轮路牌完全消失」。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SAMPLE = JSON.stringify({candidates:[
   {label:'复盘这一步', sub:'收拢成果', color:'#34f5a0', steps:['汇总','提炼','输出'], rationale:'常见延续', modality:'text'},

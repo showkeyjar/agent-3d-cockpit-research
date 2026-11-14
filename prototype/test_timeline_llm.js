@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 /* test_timeline_llm.js — v0.9.17 分叉重走的真实 35B 冒烟
  *
  * test_timeline.js 的 D 段用 WS 桩验证了「协议路径真实、旧结果不回放」；
@@ -8,7 +9,7 @@
  * 35B 单槽拥塞时结果可能是澄清 / 本地兜底，测试如实接受并标注，不伪造通过。
  */
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const CONTEXT = '国内电力交易市场的现货与中长期交易有什么区别？';
 

@@ -6,7 +6,7 @@ LLM Forecaster — 真实 LLM 前瞻推理适配器
 
 Usage:
     from llm_forecaster import LLMForecaster
-    fc = LLMForecaster(base_url="http://localhost:8080/v1", model="qwen3.5-35b")
+    fc = LLMForecaster(base_url="http://localhost:8080/v1", model="qwen3.6-35b")
     result = fc.forecast("帮我开发一个爬虫")
 """
 
@@ -45,7 +45,7 @@ class LLMCandidateSampler:
     def __init__(
         self,
         base_url: str = "http://localhost:8080/v1",
-        model: str = "qwen3.5-35b",
+        model: str = "qwen3.6-35b",
         api_key: str = "EMPTY",
         embedding_model: Optional[str] = None,
         embedding_base_url: Optional[str] = None,
@@ -543,7 +543,7 @@ class LLMForecaster:
     def __init__(
         self,
         base_url: str = "http://localhost:8080/v1",
-        model: str = "qwen3.5-35b",
+        model: str = "qwen3.6-35b",
         api_key: str = "EMPTY",
         k: int = 4,
         thresholds: Optional[dict] = None,

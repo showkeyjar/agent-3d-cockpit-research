@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // F3.6 速度线回归：行驶时可见 + 铺到视野边缘；停止时消失。
 //   断言 __cockpit._speedLineState() 新测试钩子。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 let failures = 0;
 function check(name, ok, extra){

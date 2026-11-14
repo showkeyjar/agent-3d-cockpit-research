@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 /* test_compare.js — v0.9.18 P2：本轮候选并排对比 + 自定义方向
  *
  * 验证目标：
@@ -11,7 +12,7 @@
  * 纯前端，直接调用全局函数注入推演结果，不占用 35B 单槽，秒级完成。
  */
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

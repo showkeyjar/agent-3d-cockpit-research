@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 /* test_keyboard.js — v0.9.19 P2：键盘等价视图（全键盘可达）
  *
  * 验证目标：
@@ -13,7 +14,7 @@
  *     setupTestArrival（它同步填好 _futureCandidates 与 _arrivalResults）来验证状态机。
  */
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

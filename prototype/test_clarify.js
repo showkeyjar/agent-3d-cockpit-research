@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 澄清回路端到端验证：缺数据任务 → 模型澄清卡 → 用户回答 → 真实第二轮 LLM
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function main() {

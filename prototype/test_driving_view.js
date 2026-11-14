@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 行驶镜头(看板淡出/恢复) + 结果卡感知动画 冒烟回归
 //   断言驱动 __cockpit._driveTo()/._signOpacities() 新测试钩子。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 let failures = 0;
 function check(name, ok, extra){

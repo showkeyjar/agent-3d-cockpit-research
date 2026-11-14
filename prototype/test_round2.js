@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 两轮诊断：第一轮选分支→看未来牌；第二轮 travelFuture 深入→看第二轮未来牌是否还在
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function snap(){

@@ -1,5 +1,6 @@
+const { resolveChromePath } = require('./chrome_helper');
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {

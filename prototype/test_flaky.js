@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 多次复现：每次测「卡片出现瞬间」vs「6s 后稳定」的未来牌数量，判定是真失败还是异步延迟
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const TASK = '国内电力交易市场的格局？';
 
 function countFut(page){return page.evaluate(()=>{

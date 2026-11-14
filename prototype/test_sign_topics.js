@@ -1,8 +1,9 @@
+const { resolveChromePath } = require('./chrome_helper');
 // v0.9.24 回归：3D 路牌必须显示对话里的具体业务词（本地兜底不再空洞）
 // 走真实 8770 fast=1 链路（不占 35B 单槽），验证路牌文字随会话主题变化、
 // 凭据仍如实标「本地预览/模型未参与」，且 3D 不变量零回退。
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra){

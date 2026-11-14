@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 详细复现：dump 所有牌的 branchId/世界坐标/屏幕坐标，区分真实未来牌与 -9 占位
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 (async () => {
   const browser = await chromium.launch({ executablePath: CHROME, headless: true });

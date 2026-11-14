@@ -1,9 +1,10 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 无死路探索链端到端验证：
 //   搭景（到达牌 + 3 块未来路牌）→ 单击未来路牌看解释卡（含「走向这条路」按钮）
 //   → 点按钮 travelFuture() → 走到新到达点 → autoExploreNext 铺出新未来路牌
 //   → 再选一块走向它……循环 3 轮，验证「3D 空间永远能继续往前走」
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 const settle = async (page, getter, arg) => {
   for (let i = 0; i < 20; i++) {

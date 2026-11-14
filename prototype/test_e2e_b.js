@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 临时变体（路线B验证用）：不要求「查资料」类候选，直接走第一个候选
 // 验证：双击第0站 → 单步真流式执行 → 到达牌 → 结果卡（真实内容）→ 未来路牌 → 解释卡
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 const settle = async (page, getter) => {
   for (let i = 0; i < 20; i++) {

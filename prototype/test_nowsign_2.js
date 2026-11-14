@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 复现用户观感：A=行驶中「现在」牌隐藏时序；B=行驶中触发新一轮推演重建（autoExplore 竞态）；C=结果卡强调样式
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 let failures = 0;
 function check(name, ok, extra){

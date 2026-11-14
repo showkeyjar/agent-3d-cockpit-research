@@ -5,7 +5,14 @@
 
 ## 这是什么
 
-本项目是 [agent-3d-cockpit](C:/Users/smith/WorkBuddy/2026-11-03-19-18-08/agent-3d-cockpit) 原型（本地绝对路径，跨盘相对路径会失效）的**研究背书**，不是它的开发主线。原型可访问入口：`http://127.0.0.1:8899/index.html`（静态）或 `http://127.0.0.1:8770/`（后端直出）。
+本项目是 `prototype/` 目录中**实证原型**（`index.html` + 后端 `backend/` + 推理器 `forecaster/`）的**研究背书**，不是它的开发主线。
+
+原型本地运行入口（详见下方「运行原型」与 `prototype/README.md`）：
+
+- 后端直出：`http://127.0.0.1:8770/`（推荐；统一端口 8770，见 `prototype/requirements.txt`）
+- 静态预览：`prototype/index.html` 直接用浏览器打开（需同源后端在 8770 才能跑推演/执行）
+
+> 注意：本文档与代码均不依赖任何个人本机绝对路径；克隆到任意机器后只需按 `requirements.txt` 装依赖即可。
 
 本研究横跨**两个学科**（详见 [docs/SUBDISCIPLINES.md](docs/SUBDISCIPLINES.md)）：
 - **学科 1 · 向量空间上下文可视化**：智能体上下文中语义结构的真实变化（候选采样、分桶、方向分化）如何被感知与呈现——载体：`forecaster/`。

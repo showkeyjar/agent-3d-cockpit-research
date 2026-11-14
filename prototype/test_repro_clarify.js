@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 复现用户现场：任务"国内电力交易市场的格局？" → 点"查资料" → 看第二阶段路牌
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 (async () => {
   const browser = await chromium.launch({ executablePath: CHROME, headless: true });

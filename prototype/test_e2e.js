@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 真实端到端：提问 → 双击第0站 → 完整顺序链 → 点击到达牌 → 点击未来路牌
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 const settle = async (page, getter) => {
   for (let i = 0; i < 20; i++) {

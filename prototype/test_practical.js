@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // v0.9.23 回归：实用化三件套（常驻 HUD / 关键发现脊柱 / 决策溯源链）
 // 纯前端 + __cockpit 钩子，用与真实到达完全相同的 detail 结构驱动，不依赖 35B 单槽，秒级。
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra){ if (cond){ pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + (extra ? '  → ' + JSON.stringify(extra) : '')); } }

@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 // UX 六修验证：结果牌下沉到路面下方 + 比一般路牌小 + 轨道颜色淡化
 //  A. 几何：到达牌 y < 节点路面、width < 一般未来牌(3.2)，且仍在屏幕内、位于画面下半部
 //  B. 分层：所有未来牌都在结果牌上方；从相机到任一未来牌的射线不再被结果牌(-2)挡住
@@ -5,7 +6,7 @@
 //  D. 可用性：结果牌仍能被射线命中（点击展开结果不失效），0 JS 错误
 // 纯前端（setupTestArrival），不依赖 35B，秒级完成。
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

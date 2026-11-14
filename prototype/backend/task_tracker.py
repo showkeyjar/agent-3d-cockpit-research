@@ -571,22 +571,28 @@ class AgentExecutor:
         这是「查资料」类候选最常见的失败模式：模型没有真实检索能力，
         于是建议用户「访问某某网站」「查看某数据集」，对用户毫无价值。
 
-        规则统一收敛在 forecaster/core.py 的 pushes_back_to_user()，
-        前瞻推演路牌净化与执行结果校验共用一套，避免两处规则漂移。
+        规则唯一来源：forecaster/core.py 的 pushes_back_to_user() 与其公开常量
+        URL_RE / PUSHBACK_RE。本方法只做「导入」，绝不抄写正则——任何改动
+        都发生在 core.py 一处，避免前瞻推演路牌净化与执行结果校验两处规则漂移。
         """
         try:
-            from core import pushes_back_to_user
-            return pushes_back_to_user(text)
+            try:
+                from core import pushes_back_to_user as _pbu
+            except Exception:
+                from forecaster.core import pushes_back_to_user as _pbu
+            return _pbu(text)
         except Exception:
-            # core 不可导入时（独立单测场景），退回本地最小实现
-            t = text or ""
-            if re.search(r'(https?://|www\.|\.(com|cn|net|org|gov)\b)', t):
-                return True
-            return bool(re.search(
-                r'((建议|推荐|请|您|你|用户)(可以|能|可|能够)?(去|先)?(访问|打开|查看|浏览|查阅|搜索|查找|关注|了解|参考)\s*'
-                r'[^。；\n]{0,10}(网站|网页|链接|网址|官网|页面|数据集|数据|资料|文献|源))',
-                t,
-            ))
+            # 极端独立单测场景：core 完全不可导入时，从同一公开常量回退，
+            # 仍不重新抄写正则。若常量也取不到，保守返回 False（不误伤正常输出）。
+            try:
+                try:
+                    from core import URL_RE, PUSHBACK_RE
+                except Exception:
+                    from forecaster.core import URL_RE, PUSHBACK_RE
+                t = text or ""
+                return bool(URL_RE.search(t) or PUSHBACK_RE.search(t))
+            except Exception:
+                return False
 
 
 # ─── 自测 ─────────────────────────────────────────────────

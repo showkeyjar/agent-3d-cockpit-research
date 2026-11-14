@@ -1,10 +1,11 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 验证本轮两项修复：
 //  A. 视角自由 + 摄像机不脱轨：拖拽改变 yaw 后，空闲 4s 内 yaw 不应被强制拉回 travelYaw（脱轨修复）
 //  B. 风景有意义：概念短语应为长度≥2 的可读词语/短句，不得是单字或滑窗碎片（如「力交」）
 // 用法：node test_ux_fixes3.js   （需 8770 与 8082 在线）
 const { chromium } = require('playwright-core');
 
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

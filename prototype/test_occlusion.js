@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 确定性遮挡诊断：setupTestArrival 搭好「到达牌 + 3 块未来路牌」，
 // 用 rayHitsAt 检查每块未来路牌的屏幕坐标实际命中谁 —— 定位「下一步点不动」根因
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 async function main() {
   const browser = await chromium.launch({ headless: true, executablePath: CHROME });

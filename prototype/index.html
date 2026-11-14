@@ -666,6 +666,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   html.mode-opaque #timelinePanel,
   html.mode-opaque #timelineBtn,
   html.mode-opaque #scnPanel,
+  html.mode-opaque #contextTags,
   html.mode-opaque #proofBar,
   html.mode-opaque #legend,
   html.mode-opaque #customDirInput,
@@ -702,6 +703,33 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   #progressHud.is-busy .ph-conc::after{ content:' ▍'; color:#ffd27f; animation:phblink 1s steps(2) infinite; }
   @keyframes phblink{ 50%{ opacity:.15; } }
 
+  /* v0.9.25 · 风景→上下文闭环：用户从空间里「纳入」的关联以可核对标签条呈现（opaque 模式隐藏） */
+  #contextTags{
+    position:fixed; left:50%; top:94px; transform:translateX(-50%);
+    z-index:30; display:none; gap:7px; flex-wrap:wrap; justify-content:center;
+    max-width:min(720px, calc(100vw - 40px)); pointer-events:auto;
+  }
+  #contextTags.show{ display:flex; }
+  #contextTags .ct-hint{ color:#7f93b5; font-size:11px; align-self:center; }
+  #contextTags .ctag{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:3px 9px; border-radius:9px; font-size:12px;
+    background:rgba(95,224,255,.12); border:1px solid rgba(95,224,255,.4);
+    color:#cdebff; cursor:default;
+  }
+  #contextTags .ctag .csrc{ color:#7f93b5; font-size:10.5px; }
+  #contextTags .ctag .ctdel{
+    cursor:pointer; color:#ff9aa8; background:none; border:none; font-size:14px; line-height:1; padding:0 1px;
+  }
+  #contextTags .ctag .ctdel:hover{ color:#ff5f70; }
+  /* 风景面板里的「纳入」按钮 */
+  #scnPanel .scn-add{
+    margin-top:10px; width:100%; padding:7px 0; border-radius:9px; cursor:pointer;
+    background:rgba(95,224,255,.16); border:1px solid rgba(95,224,255,.4); color:#cdebff; font-size:12.5px;
+  }
+  #scnPanel .scn-add:hover{ background:rgba(95,224,255,.26); }
+  #scnPanel .scn-add:disabled{ opacity:.55; cursor:default; background:rgba(52,245,160,.16); border-color:rgba(52,245,160,.4); color:#9affc8; }
+
   /* v0.9.23 · 实用化：决策溯源链面板（D 键 / 顶栏按钮） */
   #decisionChain{
     position:fixed; right:14px; top:96px; width:322px; max-height:calc(100vh - 130px);
@@ -730,7 +758,13 @@ body.immersive #immersiveHud{display:block;opacity:1;}
 </head>
 <body>
 <script>
-/* v0.9.21 · M 阶段：?mode=opaque 仅隐藏呈现层（A 组），不触碰执行层 / 3D 不变量 / 中断态 */
+/* ══════════════════════════════════════════════════════════════════════
+   M1 实验操纵区（OPAQUE-MANIPULATION ZONE）— ?mode=opaque
+   A 组「执行不透明」：仅给 <html> 加 mode-opaque class，由 CSS 隐藏
+   P2/P3/P4 呈现层（含 #progressHud / #decisionChain 及其开关）。
+   纯呈现层操纵——不触碰执行层 / 3D 不变量 / 中断态 / 任何数据。
+   由 verify_opaque.js 常驻回归锁死。检索时 grep "OPAQUE-MANIPULATION ZONE"。
+   ══════════════════════════════════════════════════════════════════════ */
 (function(){ try{ if(new URLSearchParams(location.search).get('mode')==='opaque') document.documentElement.classList.add('mode-opaque'); }catch(e){} })();
 </script>
 <canvas id="scene"></canvas>
@@ -748,6 +782,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
 
 <!-- v0.9.23 · 实用化：常驻实质进展 HUD（一眼感知这一步的产出 / 来源 / 进度） -->
 <div id="progressHud"><span class="ph-step">第 0 步</span><span class="ph-conc">等待开始…</span><span class="ph-badge">—</span><span class="ph-meta"></span></div>
+<div id="contextTags"></div>
 
 <!-- v0.9.23 · 实用化：决策溯源链面板（D 键 / 顶栏按钮） -->
 <div id="decisionChain"><h3>决策溯源链 <small>D 键开关</small></h3><div id="dcList"></div></div>
@@ -1335,6 +1370,7 @@ const _PAN_ZERO = new THREE.Vector3(0, 0, 0);
 const SCN_MAX = 500;
 let sceneryPoints = null, _scnPos = null, _scnCol = null, _scnCount = 0;
 let sceneryGroup = null, _scnSprites = [];   // 概念图卡（语义风景主体：沿路两侧铺开的「概念文字+图卡」）
+let _contextTags = [];   // v0.9.25：用户在空间里主动「纳入本轮上下文」的关联（真实短语+来源，P3 可核对）；非系统自动注入，保留用户塑造权
 let _lastScnPhrases = [];                    // 最近一次提取的概念短语（供调试/验证：确认是可读词语而非碎片）
 const _scnLabelHashes = new Set();
 const SCN_LABEL_MAX = 22;   // 风景图卡上限：压到远低于路牌数量，确保路牌信息不被淹没
@@ -1900,6 +1936,7 @@ function showSceneryPanel(text, src){
       '<div class="scn-text"></div>' +
       '<div class="scn-src"></div>' +
       '<div class="scn-note">来自上下文的概念片段，由文本哈希近似生成（非真语义向量）。点击可回看它来自哪段上下文。</div>' +
+      '<button class="scn-add">＋ 纳入本轮上下文</button>' +
       '<button class="scn-close">收起</button>';
     el.style.cssText = 'position:fixed;right:16px;top:96px;width:280px;padding:14px 16px;border-radius:14px;' +
       'background:linear-gradient(160deg,rgba(14,22,40,.96),rgba(8,14,28,.96));border:1px solid rgba(95,224,255,.35);' +
@@ -1907,7 +1944,20 @@ function showSceneryPanel(text, src){
       'transition:opacity .25s ease, transform .25s ease;transform:translateY(-8px);';
     document.body.appendChild(el);
     el.querySelector('.scn-close').addEventListener('click', hideSceneryPanel);
+    el.querySelector('.scn-add').addEventListener('click', () => {
+      const t = el.dataset.text, s = el.dataset.src || '语义风景';
+      if (!t) return;
+      const added = addContextTag(t, s);
+      const b = el.querySelector('.scn-add');
+      b.disabled = true;
+      b.textContent = added ? '✓ 已纳入' : '✓ 已在上下文中';
+    });
   }
+  el.dataset.text = text; el.dataset.src = src || '上下文';
+  const addBtn = el.querySelector('.scn-add');
+  const inTags = _contextTags.some(t => t.text === text);
+  addBtn.disabled = inTags;
+  addBtn.textContent = inTags ? '✓ 已纳入' : '＋ 纳入本轮上下文';
   el.querySelector('.scn-text').textContent = text;
   el.querySelector('.scn-src').textContent = '来源：' + (src || '上下文');
   el.classList.add('show');
@@ -1935,6 +1985,33 @@ function focusScenery(sp){
   _panHoldUntil = performance.now() + 3500;   // 看一眼后自动回中（镜头不脱轨）
   showSceneryPanel(sp.userData.text, sp.userData.src);
   showToast(`语义风景 · ${sp.userData.text}`, '#7fd6ff');
+}
+
+/* v0.9.25 · 风景→上下文闭环：用户在空间里主动把一个概念关联「纳入本轮上下文」。
+   这是用户对探索空间的主动塑造（不是系统自动把邻近概念塞进去——「近」不代表正确方向），
+   纳入后下一轮 autoExploreNext 的推演上下文会带上这些真实短语，未来牌因此改变。 */
+function addContextTag(text, src){
+  text = (text || '').trim();
+  if (!text) return false;
+  if (_contextTags.some(t => t.text === text)) return false;   // 幂等：已纳入不再重复
+  _contextTags.push({ text, src: src || '语义风景' });
+  renderContextTags();
+  showToast(`已纳入本轮上下文：${text}`, '#7fd6ff');
+  return true;
+}
+function removeContextTag(text){
+  _contextTags = _contextTags.filter(t => t.text !== text);
+  renderContextTags();
+}
+function renderContextTags(){
+  const el = document.getElementById('contextTags');
+  if (!el) return;
+  if (!_contextTags.length){ el.classList.remove('show'); el.innerHTML = ''; return; }
+  el.innerHTML = '<span class="ct-hint">本轮纳入：</span>' + _contextTags.map(t =>
+    `<span class="ctag" title="来源：${t.src}">${t.text}<button class="ctdel" data-t="${t.text.replace(/"/g,'')}">×</button></span>`
+  ).join('');
+  el.querySelectorAll('.ctdel').forEach(b => b.addEventListener('click', () => removeContextTag(b.dataset.t)));
+  el.classList.add('show');
 }
 
 /* ── 单击：选中 + 展开卡片 + 平滑把视线带向路牌 ── */
@@ -2817,6 +2894,7 @@ function runForecast(context){
   setThinking(true, '正在用模型推演前方路况…');
   _currentCandidates = [];
   _customCandidates = [];                  // 新提问：用户自定义的方向一并清空
+  _contextTags = []; renderContextTags(); // v0.9.25：新提问清空「本轮纳入」的关联（属本次探索的塑造，不跨任务残留）
   hideCompare();
   renderBranchCards([]);
 
@@ -5314,7 +5392,17 @@ function buildExploreContext(doneLabel, doneSteps){
       }
     }
   } catch(e) { /* 账本不可读时如实不带，绝不编造 */ }
-  return `${_lastContext || ''}${prev}（旅程已走过：${chain}${doneLabel ? `；刚完成：${doneLabel}${(doneSteps||[]).length ? '（' + doneSteps.join('、') + '）' : ''}` : ''}）`
+  // v0.9.25 · 风景→上下文闭环：用户在空间里主动「纳入」的关联，注入推演上下文——
+  // 放在「（旅程已走过」之前，使后端业务短语抽取能读到它们（抽取器以该标记切掉旅程尾巴）。
+  // 用半角括号包裹、以顿号连接：括号与顿号都在抽取器的分隔符集中，因此只把真实短语
+  // （如「限电事件」）切出来，不会把「本轮纳入」之类包装词变成业务词。短语来自用户自己的
+  // 上下文（collectContextPhrases 已标 src），真实可核对，非系统编造；且须用户主动点击纳入
+  // （系统不自动把邻近概念塞进来——「近」≠ 正确方向）。
+  let tags = '';
+  if (_contextTags.length){
+    tags = ' (' + _contextTags.map(t => t.text).join('、') + ')';
+  }
+  return `${_lastContext || ''}${prev}${tags}（旅程已走过：${chain}${doneLabel ? `；刚完成：${doneLabel}${(doneSteps||[]).length ? '（' + doneSteps.join('、') + '）' : ''}` : ''}）`
     + ' —— 已经沿这条路走了一段，结合用户本来的问题，下一步还可能做什么？(不要推荐已经完成过的步骤。)';
 }
 
@@ -6091,7 +6179,12 @@ function init(){
 
 init();
 
-  // ── 调试导出：供端到端测试/演示读取内部状态（读访问，无副作用） ──
+  // ══════════════════════════════════════════════════════════════════════
+  //  测试钩子区（TEST-HOOK ZONE）— window.__cockpit
+  //  仅供端到端回归 / 演示读取内部状态与注入确定性结果（读访问 + simulate*
+  //  系列钩子，无副作用；绝不改变任何 3D 不变量 / 执行状态机 / 中断态）。
+  //  任何常规用户交互路径都不依赖此区。检索时 grep "TEST-HOOK ZONE"。
+  // ══════════════════════════════════════════════════════════════════════
   window.__p6Env = { stereoRenders: 0, composerRenders: 0, xrRenders: 0 };
   window.__cockpit = {
     get candidates() { return _currentCandidates; },
@@ -6259,6 +6352,14 @@ init();
       recordRun(d, 'done');
       return true;
     },
+    // v0.9.25 · 风景→上下文闭环回归钩子
+    setContext(ctx){ _lastContext = ctx || ''; return true; },
+    get contextTags(){ return _contextTags.slice(); },
+    get contextTagCount(){ return _contextTags.length; },
+    addContextTag(text, src){ return addContextTag(text, src); },
+    removeContextTag(text){ removeContextTag(text); return true; },
+    clearContextTags(){ _contextTags = []; renderContextTags(); return true; },
+    exploreContextText(doneLabel, doneSteps){ return buildExploreContext(doneLabel || '', doneSteps || []); },
     get kbFutures() { return _futureCandidates.map((c, i) => ({i, label: c?.label || ''})); },
     _kbNav(dir){ kbNav(Number(dir) || 0); return {group: _kbGroup, sel: _kbSel}; },
     _kbGo(){ kbGo(); return {group: _kbGroup, sel: _kbSel}; },

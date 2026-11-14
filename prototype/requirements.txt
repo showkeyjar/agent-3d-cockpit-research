@@ -1,0 +1,32 @@
+# ============================================================
+# agent-3d-cockpit 实证原型依赖清单（Python）
+# 适用目录：prototype/backend + prototype/forecaster
+# 安装：在 prototype/ 目录下执行  pip install -r requirements.txt
+# ============================================================
+
+# ── Web 框架 / ASGI 服务 ──
+fastapi>=0.110
+uvicorn>=0.29
+# WebSocket + 静态文件已由 fastapi 自带，无需额外包
+
+# ── 异步 HTTP（执行器回调、forecaster 调用 LLM）──
+aiohttp>=3.9
+
+# ── 数值 / 向量（分歧度计算、embedding 投影）──
+numpy>=1.26
+
+# ── 请求体校验 ──
+pydantic>=2.6
+
+# ── WebSocket 客户端（前端走浏览器，后端单测用）──
+websockets>=12.0
+
+# ── 测试 ──
+pytest>=8.0
+
+# ============================================================
+# 注意：前端回归测试（test_*.js）使用 Node + playwright-core，
+# 不在此清单内。用法见 prototype/README.md：
+#   npm i -g playwright-core   # 或本地 node_modules
+#   # 浏览器用本机已装的 Chromium（PLAYWRIGHT_CHROMIUM 可覆盖路径）
+# ============================================================

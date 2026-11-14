@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // v0.9.20 回归：风景可点（沿途语义概念图卡 → 回看来源 + 视线带向，机位不动 + 行驶中不可点）
 // 纯前端 + __cockpit 钩子，不占 35B 单槽，秒级。
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 
 let pass = 0, fail = 0;
 const fails = [];

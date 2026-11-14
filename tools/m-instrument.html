@@ -83,7 +83,7 @@
       <div class="row" style="margin-top:8px">
         <button class="ghost" data-arm="A">改为 A（不透明）</button>
         <button class="ghost" data-arm="B">改为 B（透明）</button>
-        <span class="sub">实验员可手动平衡两组人数</span>
+        <span class="sub" style="color:#c08">⚠ 手动覆盖会引入分配偏倚，仅用于紧急平衡；覆盖后记录会显式标记 arm_override=true</span>
       </div>
       <h2>① 打开原型（分配链接）</h2>
       <div class="url" id="armUrl"></div>
@@ -189,8 +189,9 @@ $('#consentChk').addEventListener('change', e => $('#btnStart').disabled = !e.ta
 $('#btnStart').addEventListener('click', ()=>{ S.pid = uid(); goAssign(); });
 
 function goAssign(){
-  // 随机 arm + 随机任务
+  // 默认纯随机分配（避免实验员偏倚）；手动覆盖属例外，须在记录中显式标记。
   S.arm = Math.random()<0.5 ? 'A' : 'B';
+  S.arm_override = false;
   S.task = TASKS[Math.floor(Math.random()*TASKS.length)];
   paintAssign();
   $('#scrConsent').classList.add('hidden');
@@ -205,7 +206,9 @@ function paintAssign(){
   $('#pNo').textContent = getRecs().length + 1;
 }
 $$('#scrAssign [data-arm]').forEach(b=>b.addEventListener('click',()=>{
-  S.arm = b.dataset.arm; paintAssign(); toast('已改为 组 '+S.arm);
+  // 手动覆盖：标记 arm_override，使下游分析能区分「随机分配」与「人为平衡」
+  S.arm = b.dataset.arm; S.arm_override = true;
+  paintAssign(); toast('已手动改为 组 '+S.arm+'（arm_override=true，已记入记录）');
 }));
 
 $('#btnToSurvey').addEventListener('click', ()=>{
@@ -232,7 +235,7 @@ function buildScale(){
 
 $('#btnSubmit').addEventListener('click', ()=>{
   // 收集
-  const rec = { pid:S.pid, arm:S.arm, task_type:S.task.type, prototype_ver:PROTO_VER, ts:new Date().toISOString() };
+  const rec = { pid:S.pid, arm:S.arm, arm_override:S.arm_override || false, task_type:S.task.type, prototype_ver:PROTO_VER, ts:new Date().toISOString() };
   let ok=true;
   SCALE.forEach(it=>{ const v=$(`input[name=${it.k}]:checked`); if(!v){ok=false;} else rec[it.k]=+v.value; });
   ['found_product','named_step','recited_evidence'].forEach(k=>{

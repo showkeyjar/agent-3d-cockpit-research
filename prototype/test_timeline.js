@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 /* test_timeline.js — v0.9.17 P1：2D 时间线 / 多轮对照 / 分叉重走 / 导出
  *
  * 验证目标：
@@ -13,7 +14,7 @@
  * 纯前端 + fetch mock + WS 桩，不占用 35B 单槽，秒级完成。
  */
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

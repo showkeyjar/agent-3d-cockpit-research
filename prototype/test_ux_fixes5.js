@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 // UX 五修端到端验证：摄像机轨道原则 / 去光柱 / 去到达回弹 / 强调结果面板互动性
 //  A. 机位与视线解耦：拖拽自由改变 cam.yaw，但 camera.position 只由 camAnchorYaw 决定，
 //     横向脱轨距离 camOffRail 恒≈0，机位固定在路面中心线上方（司机眼位）。
@@ -7,7 +8,7 @@
 // 用法：node test_ux_fixes5.js   （需 8770 与 8082 在线；35B 单槽，勿并发跑其它 3D 测试）
 const { chromium } = require('playwright-core');
 
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const TASK = '请分析国内电力交易市场的格局，并查资料说明现货与中长期交易的区别';
 const sleep = ms => new Promise(r => setTimeout(r, ms));

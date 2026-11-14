@@ -1,10 +1,11 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 到达序列回归（UX 五修后语义）：「落位即稳定」
 //   旧 F3.8 断言的是 gaze 转向 → 1200ms 物件亮起 → 2800ms gaze 清除这套到达编舞；
 //   用户指出那只是「往回弹一下」，不携带信息，已整体移除。
 //   现在到达只做一件事：打开结果卡 + 把联动牌提示改成可操作状态。
 //   本脚本用 setupTestArrival 钩子复验：无 gaze、无光柱、无延迟脉冲、有互动提示。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let failures = 0;

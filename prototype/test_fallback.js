@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 验证：当 /api/forecast 返回空候选时，前端是否仍能通过 drawFutureSignsFallback 铺出未来牌。
 // 用 Playwright 拦截 /api/forecast 返回 {candidates:[]}，看未来牌是否出现。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function snap(){ const cp=window.__cockpit; const s=cp.signs||[];
   return { future:s.filter(x=>x.userData&&x.userData.branchId!==undefined&&x.userData.branchId<=-3).length,

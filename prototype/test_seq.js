@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 顺序链完整链路测试：提问 → 双击第 0 站 → 监控推进 → 到达牌 + 未来路牌
 // 同时打印 _seqDebugLog 时间线，判断「慢」还是「卡死」
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 async function main() {
   const browser = await chromium.launch({ headless: true, executablePath: CHROME });

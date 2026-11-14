@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 // UX 七修验证：拿到结果后机位沿轨道「停靠到结果牌上方」
 //  A. 不变量：机位仍只由 camAnchorYaw 决定，恒在路面中心线正上方（眼位 1.35m），
 //     camOffRail≈0；与结果牌的水平间距只沿轨道收近，绝不侧移出轨。
@@ -7,7 +8,7 @@
 //  D. 稳定：落位后 1.6s 机位/距离零漂移（无回弹）；R 复位仍回到停靠位；0 JS 错误。
 // 纯前端（_driveTo 的 arrivalDock 钩子），不依赖 35B，秒级完成。
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

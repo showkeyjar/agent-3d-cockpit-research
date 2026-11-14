@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 端到端点击测试：验证「提问 → 选路出发 → 到达牌点击 → 下一步未来路牌点击」链路
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 const probe = (port) => new Promise(res => {
   const http = require('http');

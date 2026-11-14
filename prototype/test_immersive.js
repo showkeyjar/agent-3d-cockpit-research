@@ -1,10 +1,11 @@
+const { resolveChromePath } = require('./chrome_helper');
 // P6 沉浸形态冒烟验证：
 //   ① I 键进入/退出沉浸：HUD 出现 + 桌面层抽屉化(~12% opacity) + 相机贴地（pitch 压平）
 //   ② V 键立体：stereoRenders 实际执行 + composerRenders 冻结 + stereoOffsets≈0.03/0.03（IPD 对正）
 //   ③ 关闭恢复：composer 恢复增长 + immersive/stereoOn 归 false
 //   ④ WebXR 探测：无头 chromium 无沉浸式设备 → 按钮不出现、xrRenders 恒 0、全程 JS 零错误
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 const assert = (cond, msg) => { if (!cond) throw new Error('ASSERT FAIL: ' + msg); console.log('  ✓ ' + msg); };
 

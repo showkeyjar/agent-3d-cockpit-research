@@ -27,12 +27,14 @@ import numpy as np
 
 # 「建议/请/您+动词+外部资源」句式：动词后必须绑定网站/数据/资料等对象才算命中，
 # 避免误伤「建议关注以下要点」这类正常用法。
-_PUSHBACK_RE = re.compile(
+# 公开常量（URL_RE / PUSHBACK_RE）：前瞻推演路牌净化与执行结果校验共用同一套规则，
+# 任何调用方都应从这里导入，不要各自抄写正则（避免规则漂移）。
+PUSHBACK_RE = re.compile(
     r'((建议|推荐|请|您|你|用户)(可以|能|可|能够)?(去|先)?(访问|打开|查看|浏览|查阅|搜索|查找|关注|了解|参考)\s*'
     r'[^。；\n]{0,10}(网站|网页|链接|网址|官网|页面|数据集|数据|资料|文献|源))'
 )
 # 网址 / 链接 / 常见域名后缀
-_URL_RE = re.compile(r'(https?://|www\.|\.(com|cn|net|org|gov)\b)')
+URL_RE = re.compile(r'(https?://|www\.|\.(com|cn|net|org|gov)\b)')
 
 
 def sanitize_sign_text(text: str) -> str:
@@ -45,7 +47,7 @@ def sanitize_sign_text(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-    if _URL_RE.search(t) or _PUSHBACK_RE.search(t):
+    if URL_RE.search(t) or PUSHBACK_RE.search(t):
         return ""
     return t
 
@@ -55,7 +57,7 @@ def pushes_back_to_user(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    return bool(_URL_RE.search(t) or _PUSHBACK_RE.search(t))
+    return bool(URL_RE.search(t) or PUSHBACK_RE.search(t))
 
 
 # ──────────────────────────────────────────────

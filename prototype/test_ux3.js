@@ -1,6 +1,7 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 验证三项 UX 修复：①镜头 pan 回中 ②节点↔结果「可点可收起」联动（五修后去光柱） ③沿途语义风景
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const TASK = '国内电力交易市场的格局？';
 
 (async () => {

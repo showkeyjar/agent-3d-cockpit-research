@@ -1,9 +1,10 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 量化诊断 v4：走「正常完成」分支，验证选分支后的遮挡修复
 //  - 外层最多 3 次尝试（规避 35B 偶发 429/兜底候选导致 execute 未完成）
 //  - 每次：发任务 → 等候选 → 选「总结/归纳」类 → 轮询正常完成 → 等相机稳定 → 量化路牌
 //  - 判定：① 无未选候选牌(branchId>=0)；② 到达牌(-2)不挡正前方未来牌；③ 未来牌无被遮挡项
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function metricsFn() {

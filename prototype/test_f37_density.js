@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // F3.7 视野信息密度回归：风景层（星空/分层环）行驶时淡出、停止后淡入；
 //   主干常驻不受影响。断言 __cockpit._scenicState() 新测试钩子。
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 let failures = 0;
 function check(name, ok, extra){

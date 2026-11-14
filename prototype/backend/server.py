@@ -5,9 +5,10 @@ Agent Cockpit Backend — FastAPI + WebSocket
 通过 WebSocket 流式推送分歧度、路形、候选走向、任务状态。
 
 Usage:
-    uvicorn server:app --host 0.0.0.0 --port 8765 --reload
+    uvicorn server:app --host 0.0.0.0 --port 8770
 
-Then open index.html — it will auto-connect to ws://localhost:8765/ws
+Then open index.html — it will auto-connect to ws://localhost:8770/ws
+(统一端口 8770：与 backend-watchdog.py / README / m-instrument.html / 测试脚本一致)
 """
 
 from __future__ import annotations
@@ -51,10 +52,21 @@ from task_tracker import TaskTracker, AgentExecutor
 
 app = FastAPI(title="Agent Cockpit Backend", version="0.3.0")
 
+# CORS：本地研究原型默认只允许同源/本地回环来源。生产或跨机访问时由
+# COCKPIT_CORS_ORIGINS 环境变量显式指定（逗号分隔），不要用 "*" 暴露到公网。
+_CORS_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "COCKPIT_CORS_ORIGINS",
+        "http://localhost:8770,http://127.0.0.1:8770,"
+        "http://localhost:8899,http://127.0.0.1:8899",
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -256,19 +268,39 @@ async def get_journey(journey_id: int):
 
 @app.post("/api/journeys")
 async def save_journey(payload: dict[str, Any]):
-    """保存一次行驶轨迹"""
+    """保存一次行驶轨迹。
+
+    字段白名单：只接收已知字段，未知键直接丢弃，避免任意 JSON 入库。
+    类型做了最小校验，畸形值退回安全默认，不抛 500。
+    """
+    def _num(v, default=0.0):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    def _str(v, default=""):
+        return v if isinstance(v, str) else (default if v is None else str(v))
+
+    def _bool(v):
+        return bool(v)
+
+    def _list(v):
+        return v if isinstance(v, list) else []
+
+    allowed = {
+        "title": _str(payload.get("title"), "未命名"),
+        "context": _str(payload.get("context")),
+        "divergence": _num(payload.get("divergence")),
+        "road_type": _str(payload.get("road_type"), "straight"),
+        "cost_ms": _num(payload.get("cost_ms")),
+        "nodes": _list(payload.get("nodes")),
+        "branches": _list(payload.get("branches")),
+        "reached_end": _bool(payload.get("reached_end")),
+        "meta": payload.get("meta") if isinstance(payload.get("meta"), (dict, type(None))) else None,
+    }
     ms = get_memory()
-    jid = ms.save_journey(
-        title=payload.get("title", "未命名"),
-        context=payload.get("context", ""),
-        divergence=payload.get("divergence", 0.0),
-        road_type=payload.get("road_type", "straight"),
-        cost_ms=payload.get("cost_ms", 0.0),
-        nodes=payload.get("nodes", []),
-        branches=payload.get("branches", []),
-        reached_end=payload.get("reached_end", False),
-        meta=payload.get("meta"),
-    )
+    jid = ms.save_journey(**allowed)
     return {"journey_id": jid}
 
 
@@ -377,8 +409,11 @@ async def ws_endpoint(ws: WebSocket):
             if data.get("type") == "forecast":
                 context = data.get("context", "")
                 k = data.get("k", 4)
+                # 与 REST /api/forecast 保持字段一致：透传 fast（0/1），
+                # 不传则走完整推演（默认），避免两通道行为分裂。
+                fast = data.get("fast", 0)
                 conn.context = context
-                await run_forecast_stream(conn, context, k)
+                await run_forecast_stream(conn, context, k, fast)
 
             elif data.get("type") == "ping":
                 await conn.send({"type": "pong", "ts": time.time()})
@@ -419,17 +454,21 @@ async def ws_endpoint(ws: WebSocket):
         print(f"[WS] error: {e}")
 
 
-async def run_forecast_stream(conn: WSConnection, context: str, k: int):
-    """流式推演：先推状态更新，再推结果"""
+async def run_forecast_stream(conn: WSConnection, context: str, k: int, fast: int = 0):
+    """流式推演：先推状态更新，再推结果
 
-    fc = get_forecaster()
+    k / fast 透传自前端请求，与 REST /api/forecast 字段对齐（修复此前
+    WS 通道丢弃 k、且 fast 不一致的分裂行为）。
+    """
+
+    fc = get_forecaster(fast=bool(fast))
 
     # 阶段 1: 采样
     await conn.send({"type": "status", "phase": "sampling", "msg": "采样候选走向中…"})
 
     # 在线程池中跑推理（LLM 调用是阻塞的）
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, fc.forecast, context)
+    result = await loop.run_in_executor(None, fc.forecast, context, k)
 
     # 阶段 2: 编码
     await conn.send({"type": "status", "phase": "encoding", "msg": "编码 embedding…"})
@@ -692,4 +731,6 @@ async def run_explain(conn: WSConnection, data: dict):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8765, log_level="info")
+    # 统一端口 8770（与 watchdog / README / m-instrument / 测试脚本一致）。
+    # 推荐用看门狗或 `uvicorn server:app --port 8770` 启动，本分支仅作兜底。
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8770")), log_level="info")

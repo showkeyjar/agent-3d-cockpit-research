@@ -11,7 +11,9 @@ import urllib.request
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8770
-PY = r"D:\tools\Python312\python.exe"
+# 用「当前解释器」启动 uvicorn，而非硬编码机器路径——换机/换虚拟环境都能跑。
+# 若需指定解释器，用环境变量 COCKPIT_PYTHON 覆盖。
+PY = os.environ.get("COCKPIT_PYTHON") or sys.executable or "python"
 PROBE_URL = f"http://localhost:{PORT}/api/health"
 
 

@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 验证本轮重点：路牌为主、风景退为背景；路牌更近更大
 //  A. 路牌明显比风景更「重」：未来牌不透明度(0.92) > 风景图卡不透明度(0.38)，且风景图卡更少、更小、renderOrder 更低
 //  B. 路牌更近更大：未来牌起点 5.5m（原 8.0），牌面 width 明显大于风景图卡 scale；
@@ -5,7 +6,7 @@
 // 用法：node test_ux_fixes4.js   （需 8770 与 8082 在线）
 const { chromium } = require('playwright-core');
 
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

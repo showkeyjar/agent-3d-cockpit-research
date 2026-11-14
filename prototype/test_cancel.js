@@ -1,3 +1,4 @@
+const { resolveChromePath } = require('./chrome_helper');
 /* test_cancel.js — v0.9.16 停止生成（P0 剩余项）
  *
  * 验证目标（P1 真实性 / P3 可追溯 / P4 可感知）：
@@ -11,7 +12,7 @@
  * 纯前端 + WS 桩，不依赖 35B 单槽，秒级完成（仅兜底一例等 6s）。
  */
 const { chromium } = require('playwright-core');
-const EXE = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

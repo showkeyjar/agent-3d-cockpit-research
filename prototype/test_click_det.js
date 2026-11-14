@@ -1,7 +1,8 @@
+const { resolveChromePath } = require('./chrome_helper');
 // 确定性点击链路测试：setupTestArrival 搭好场景后，验证
 // ① 点到达牌 → 结果卡展开 ② 点每块未来路牌 → 解释卡展开对应内容
 const { chromium } = require('playwright-core');
-const CHROME = 'C:/Users/smith/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe';
+const CHROME = resolveChromePath();
 
 async function main() {
   const browser = await chromium.launch({ headless: true, executablePath: CHROME });
