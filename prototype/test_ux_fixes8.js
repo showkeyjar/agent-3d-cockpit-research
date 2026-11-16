@@ -39,7 +39,7 @@ async function newPage(browser, errors) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.forecastProof, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.forecastProof, null, { timeout: 20000 });
   await sleep(400);
   return page;
 }
@@ -168,10 +168,10 @@ async function newPage(browser, errors) {
   });
   await page.fill('#msgInput', '分析国内电力交易市场格局');
   await page.click('#sendBtn');
-  await page.waitForFunction(() => window.__cockpit.proofKind === 'fast', { timeout: 15000 });
+  await page.waitForFunction(() => window.__cockpit.proofKind === 'fast', null, { timeout: 15000 });
   check('fast 通道标「本地预览」，不伪装成模型推演',
     (await page.evaluate(() => window.__cockpit.proofBadge)) === '本地预览');
-  await page.waitForFunction(() => window.__cockpit.proofKind === 'llm', { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit.proofKind === 'llm', null, { timeout: 20000 });
   const up = await page.evaluate(() => ({
     kind: window.__cockpit.proofKind, badge: window.__cockpit.proofBadge,
     tag: window.__cockpit.branchProofTag,
@@ -191,7 +191,7 @@ async function newPage(browser, errors) {
   });
   await page.fill('#msgInput', '分析国内电力交易市场格局');
   await page.click('#sendBtn');
-  await page.waitForFunction(() => window.__cockpit.proofKind === 'fast', { timeout: 15000 });
+  await page.waitForFunction(() => window.__cockpit.proofKind === 'fast', null, { timeout: 15000 });
   await sleep(3400);   // 越过 2500ms 的完整推演触发窗口
   const noUp = await page.evaluate(() => ({
     kind: window.__cockpit.proofKind, badge: window.__cockpit.proofBadge,
@@ -219,7 +219,7 @@ async function newPage(browser, errors) {
     });
   });
   await page.evaluate(() => window.__cockpit._exploreNext([8, 0, 8], '先查资料', ['检索', '整理']));
-  await page.waitForFunction(() => window.__cockpit.forecastProof.future !== null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__cockpit.forecastProof.future !== null, null, { timeout: 15000 });
   const fut = await page.evaluate(() => ({
     kind: window.__cockpit.forecastProof.future.kind,
     badge: window.__cockpit.proofBadge,
@@ -243,7 +243,7 @@ async function newPage(browser, errors) {
     });
   });
   await page.evaluate(() => window.__cockpit._exploreNext([8, 0, 8], '先查资料', ['检索', '整理']));
-  await page.waitForFunction(() => window.__cockpit.forecastProof.future?.kind === 'llm', { timeout: 15000 });
+  await page.waitForFunction(() => window.__cockpit.forecastProof.future?.kind === 'llm', null, { timeout: 15000 });
   const fut2 = await page.evaluate(() => ({
     badge: window.__cockpit.proofBadge, toast: document.getElementById('toast').textContent,
   }));

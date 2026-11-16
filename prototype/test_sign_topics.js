@@ -16,7 +16,7 @@ const HOLLOW = /写代码|查文档|给示例|查资料|对比分析|查数据|�
 async function explore(page, question){
   await page.evaluate(q => window.__cockpit.setContext(q), question);
   await page.evaluate(() => window.__cockpit._exploreNext([8, 0, 8], '', []));
-  await page.waitForFunction(() => window.__cockpit.kbFutures.length >= 3, { timeout: 15000 });
+  await page.waitForFunction(() => window.__cockpit.kbFutures.length >= 3, null, { timeout: 15000 });
   return page.evaluate(() => ({
     labels: window.__cockpit.kbFutures.map(x => x.label),
     signs: window.__cockpit.futureSigns.length,

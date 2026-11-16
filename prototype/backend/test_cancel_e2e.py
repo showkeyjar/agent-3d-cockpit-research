@@ -1,9 +1,9 @@
 """
 test_cancel_e2e.py — v0.9.16 真 WS + 真 35B 端到端冒烟（可选，非日常回归）
 
-与 test_cancel_backend.py 的区别：这里走真实的 8770 uvicorn、真实 8082 llama.cpp，
+与 test_cancel_backend.py 的区别：这里走真实的 8770 uvicorn、真实 8083 llama.cpp，
 验证「cancel 消息确实被新后端识别、流式 HTTP 真被掐断、槽位被释放」。
-需要 8082 空闲；单槽拥塞时结果可能走本地兜底，此时请稍后单独复跑。
+需要 8083 空闲；单槽拥塞时结果可能走本地兜底，此时请稍后单独复跑。
 
 运行：python backend/test_cancel_e2e.py   （解释器可用 COCKPIT_PYTHON 覆盖）
 """
@@ -15,7 +15,7 @@ import sys
 import aiohttp
 
 WS = 'ws://127.0.0.1:8770/ws'
-HEALTH = 'http://127.0.0.1:8082/health'
+HEALTH = 'http://127.0.0.1:8083/health'
 PASS = 0
 FAIL = 0
 
@@ -94,9 +94,9 @@ async def main():
         # 掐断后推理槽应被释放，服务仍可用（不是把 35B 挂死）
         try:
             async with sess.get(HEALTH, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                check('E2E-7 中断后 8082 推理服务仍健康', r.status == 200, f"status={r.status}")
+                check('E2E-7 中断后 8083 推理服务仍健康', r.status == 200, f"status={r.status}")
         except Exception as e:
-            check('E2E-7 中断后 8082 推理服务仍健康', False, str(e))
+            check('E2E-7 中断后 8083 推理服务仍健康', False, str(e))
 
     print(f'\n=== test_cancel_e2e.py: {PASS} PASS / {FAIL} FAIL ===')
     return 1 if FAIL else 0

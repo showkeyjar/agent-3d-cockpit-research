@@ -2,11 +2,11 @@ const { resolveChromePath } = require('./chrome_helper');
 /* test_timeline_llm.js — v0.9.17 分叉重走的真实 35B 冒烟
  *
  * test_timeline.js 的 D 段用 WS 桩验证了「协议路径真实、旧结果不回放」；
- * 这一支不 mock fetch、不 stub WS，让分叉重走真的打到 8770 + 8082：
+ * 这一支不 mock fetch、不 stub WS，让分叉重走真的打到 8770 + 8083：
  *   真实重新推演 → 真实 WS execute → 真实模型流式生成 → 真实 execute_done。
  * 父轮由测试注入以快速构造分叉起点（产品里父轮来自真实执行），
  * 但第 3 轮必须由后端真实产出，且不得等于父轮结果。
- * 35B 单槽拥塞时结果可能是澄清 / 本地兜底，测试如实接受并标注，不伪造通过。
+ * 主力模型单槽拥塞时结果可能是澄清 / 本地兜底，测试如实接受并标注，不伪造通过。
  */
 const { chromium } = require('playwright-core');
 const EXE = resolveChromePath();
@@ -29,7 +29,7 @@ const check = (name, ok, extra = '') => {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.runs), { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.runs), null, { timeout: 20000 });
 
   // 构造两个父轮（真实会话里这两轮来自真实执行；此处只为快速造出分叉起点）
   await page.evaluate(ctx => {
@@ -45,7 +45,7 @@ const check = (name, ok, extra = '') => {
 
   console.log('\n=== 真实 35B 分叉重走 ===');
   await page.evaluate(() => window.__cockpit._forkFrom('r1'));
-  await page.waitForFunction(() => window.__cockpit.execState.done === false, { timeout: 30000 })
+  await page.waitForFunction(() => window.__cockpit.execState.done === false, null, { timeout: 30000 })
     .catch(() => {});
   const started = await page.evaluate(() => ({
     exec: window.__cockpit.execState,
@@ -55,7 +55,7 @@ const check = (name, ok, extra = '') => {
     started.exec.done === false && started.ws.length >= 1 && started.ws[0].context === CONTEXT,
     JSON.stringify(started));
 
-  await page.waitForFunction(() => window.__cockpit.runCount === 3, { timeout: 180000 });
+  await page.waitForFunction(() => window.__cockpit.runCount === 3, null, { timeout: 180000 });
   const r = await page.evaluate(() => ({
     runs: window.__cockpit.runs,
     ws: window.__cockpit.wsLog,

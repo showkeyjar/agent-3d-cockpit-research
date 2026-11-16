@@ -25,10 +25,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   try {
     await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
-    await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, { timeout: 20000 });
+    await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, null, { timeout: 20000 });
     await page.fill('#msgInput', TASK);
     await page.click('#sendBtn');
-    await page.waitForFunction(() => window.__cockpit.candidates.length > 0, { timeout: 60000 });
+    await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null, { timeout: 60000 });
 
     // 选「查资料」分支的 3D 路牌（与 test_ux3 一致：双击路牌触发 startExecution）
     const idx = await page.evaluate(() => {
@@ -61,12 +61,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       } else break;
     }
 
-    await page.waitForFunction(() => window.__cockpit && window.__cockpit.hasArrival, { timeout: 150000 });
+    await page.waitForFunction(() => window.__cockpit && window.__cockpit.hasArrival, null, { timeout: 150000 });
     // 等真实的未来牌（branchId 在 -3..-7）异步拉回，避免只截到 -9 占位牌
     await page.waitForFunction(() => {
       const ck = window.__cockpit;
       return ck.signs.some(s => s.userData && s.userData.branchId !== undefined && s.userData.branchId >= -7 && s.userData.branchId <= -3);
-    }, { timeout: 60000 }).catch(() => {});
+    }, null, { timeout: 60000 }).catch(() => {});
     await sleep(2000);
     await dump('after-arrival');
 

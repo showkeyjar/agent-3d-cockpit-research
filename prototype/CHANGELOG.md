@@ -7,6 +7,26 @@
 
 ---
 
+## v0.9.27 · 2026-11-16 · LLM 端点统一切 8083 + 测试基础设施真超时修复
+- **本地 LLM 收敛为单一主力模型**：`8083 / local-primary`（llama.cpp，ctx 32768）。
+  8082（35B）退役。全部默认值与文档同步：`server.py`（`LLM_BASE_URL`/`LLM_MODEL`）、
+  `llm_forecaster.py`（默认 base_url/model）、`task_tracker.py`（自检块）、`test_cancel_e2e.py`
+  （HEALTH 探针）、`memory.py`（演示旅程 meta）、README 环境变量表、DESIGN 架构图/启动命令、
+  M-EXPERIMENT 复现清单、5 个测试脚本注释。
+- **修复系统性测试 bug：`waitForFunction` 两参调用**（22 个文件 / 68 处）：
+  Playwright 签名为 `waitForFunction(fn, arg, options)`，两参写法 `waitForFunction(fn, {timeout})`
+  中 options 被当成 `arg`，**真实超时恒为默认 30s**。此前未暴露只因旧 35B 执行 ~13.7s 恰好在
+  窗口内；新主力模型真实执行 25–55s，静默超时 → `runs[0]` 尚未出生 → 走查误报 FAIL。
+  全部改为三参 `waitForFunction(fn, null, {timeout})`。
+- **`walkthrough_real.js` 澄清重试**：新模型对模糊任务可能以「反问澄清」（clarify，合法四态）
+  收尾；代理被试如实记录该轮后补具体化追问重新真实执行（最多 2 次），仍 clarify 则如实 FAIL。
+- **验证**：真实 8083 端到端 `walkthrough_real.js` **15/15 全绿**（done / 161 字 / chain=["output"]
+  / future=4 / P0 真中断）；REST 推演 `source=llm` 且候选绑定真实业务；直连 executor 流式 219 字；
+  11 套回归全绿（opaque 22 / honesty 5 / sign_topics 17 / context_pull 14 / cancel 33 /
+  timeline 42 / practical 16 / compare 27 / keyboard 22 / scenery 21）。
+- **不变量零回退**：不新增完成信号、不碰相机/路牌/中断态、`?mode=opaque` 一致性保持、
+  clarify 仍按四态如实记录（重试只是代理被试补答，不改产品判定逻辑）。
+
 ## v0.9.26 · 2026-11-16 · Embedding 决策落地 + 工程可复现性收口
 - **Embedding 决策从「待定注释」变「可插拔」**（回应评审优化#4）：`forecaster/core.py` 定义
   `DIVERSIFY_EPS_HASH=0.60`（hashed-TF 词面近似）/ `DIVERSIFY_EPS_SEMANTIC=0.38`（真实 embedding 语义档）；

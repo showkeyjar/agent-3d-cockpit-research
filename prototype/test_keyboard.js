@@ -41,7 +41,7 @@ const FORECAST = {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.candidates), { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.candidates), null, { timeout: 20000 });
   await sleep(300);
   await page.evaluate(() => window.__cockpit._stubWs(true));
   await page.evaluate(f => window.__cockpit._applyForecast(JSON.parse(f)), JSON.stringify(FORECAST));

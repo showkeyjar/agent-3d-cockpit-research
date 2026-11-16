@@ -157,7 +157,7 @@ class AgentExecutor:
         self.llm_url = llm_base_url
         self.llm_model = llm_model
         self.tracker = tracker
-        # 默认本地确定性执行：本机 8080 模型单次就要 11s，
+        # 默认本地确定性执行：本机主力模型（8083）单次就要 11s，
         # 每步都等它只会把「超时」刷满任务条。模型够快时用 EXEC_USE_LLM=1 打开。
         self.use_llm = use_llm
         self._session: Optional[aiohttp.ClientSession] = None
@@ -608,7 +608,7 @@ if __name__ == "__main__":
     async def test():
         tracker = TaskTracker(callback=cb)
         executor = AgentExecutor(
-            "http://localhost:8082/v1", "qwen3.6-35b", tracker,
+            "http://localhost:8083/v1", "local-primary", tracker,
         )
         # 路线 B：单步真实流式。token 增量打到 stdout 验证流式链路。
         async def sink(payload):
@@ -625,18 +625,18 @@ if __name__ == "__main__":
               f" tokens≈{result['tokens']} 耗时={result['elapsed_ms']}ms")
         await executor.close()
 
-    # 检查推理服务（与 server.py 默认一致：8082 llama.cpp）
+    # 检查推理服务（与 server.py 默认一致：8083 llama.cpp 唯一主力模型）
     import socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if sock.connect_ex(("localhost", 8082)) == 0:
+    if sock.connect_ex(("localhost", 8083)) == 0:
         sock.close()
         asyncio.run(test())
     else:
         sock.close()
-        print("⚠️  8082 端口未运行，跳过 LLM 测试（仅验证任务链结构）")
+        print("⚠️  8083 端口未运行，跳过 LLM 测试（仅验证任务链结构）")
         # 纯结构测试（不调 LLM）：单步任务的 start/progress/done 上报
         tracker = TaskTracker(callback=cb)
-        executor = AgentExecutor("http://localhost:8082/v1", "test", tracker,
+        executor = AgentExecutor("http://localhost:8083/v1", "test", tracker,
                                  use_llm=False)
         result = asyncio.run(executor.execute("测试上下文", "直接回答"))
         assert len(result["tasks"]) == 1, "路线 B 任务链必须恒为 1 步"

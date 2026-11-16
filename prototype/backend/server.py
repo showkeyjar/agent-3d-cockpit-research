@@ -77,15 +77,16 @@ app.add_middleware(
 # LLM 配置（从环境变量读取，有默认值）
 # ──────────────────────────────────────────────
 
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8082/v1")
-# 别名与 start-server-35b.bat 的 -a 保持一致（2026-11-09 改名为 qwen3.6-35b）。
-# 若与 llama-server 注册的 alias 不匹配，forecast 请求会被拒 → 退回本地万金油模板，
-# 路牌内容退化成与任务无关的抽象动作。改别名时两边必须同步。
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.6-35b")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8083/v1")
+# 别名与 llama-server 启动时的 -a 注册名保持一致（2026-11-16 起本机唯一主力
+# 模型注册为 local-primary，8083）。若与 llama-server 注册的 alias 不匹配，
+# forecast 请求会被拒 → 退回本地万金油模板，路牌内容退化成与任务无关的抽象
+# 动作。改别名时两边必须同步。
+LLM_MODEL = os.environ.get("LLM_MODEL", "local-primary")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "EMPTY")
 LLM_EMBEDDING_MODEL = os.environ.get("LLM_EMBEDDING_MODEL", "")  # 留空则用哈希回退
-# 执行阶段是否真的调 LLM。8082 是本机 llama.cpp Vulkan（Qwen3.6-35B-A3B Q4_K_M），
-# 单槽、ctx 16384；空闲时短请求 2–5s 可返回，故默认开启；忙时会自动走本地执行。
+# 执行阶段是否真的调 LLM。8083 是本机 llama.cpp 唯一主力模型（别名
+# local-primary，ctx 32768）；空闲时短请求可返回，故默认开启；忙时会自动走本地执行。
 # 设 EXEC_USE_LLM=0 可完全关闭模型调用。
 EXEC_USE_LLM = os.environ.get("EXEC_USE_LLM", "1") == "1"
 

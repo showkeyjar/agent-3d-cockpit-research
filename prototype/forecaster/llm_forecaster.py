@@ -6,7 +6,7 @@ LLM Forecaster — 真实 LLM 前瞻推理适配器
 
 Usage:
     from llm_forecaster import LLMForecaster
-    fc = LLMForecaster(base_url="http://localhost:8080/v1", model="qwen3.6-35b")
+    fc = LLMForecaster(base_url="http://localhost:8083/v1", model="local-primary")
     result = fc.forecast("帮我开发一个爬虫")
 """
 
@@ -46,8 +46,8 @@ class LLMCandidateSampler:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8080/v1",
-        model: str = "qwen3.6-35b",
+        base_url: str = "http://localhost:8083/v1",
+        model: str = "local-primary",
         api_key: str = "EMPTY",
         embedding_model: Optional[str] = None,
         embedding_base_url: Optional[str] = None,
@@ -130,7 +130,7 @@ class LLMCandidateSampler:
         if self.force_local:
             self.last_source = "local"
             return self._local_forecast(context, k)
-        # Strata（本机 8080）解码约 17 tok/s，且 parallel=1：
+        # Strata（本机 8083 主力模型）解码约 17 tok/s，且 parallel=1：
         # 输出体积决定能否在交互时限内返回。用行格式代替 JSON，
         # 4 个候选约百来个 token，即使被截断也能解析出前几行。
         prompt = f"""任务规划。判断问题类型，给{k}个下一步做法（普通用户看得懂的话）。
@@ -553,8 +553,8 @@ class LLMForecaster:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8080/v1",
-        model: str = "qwen3.6-35b",
+        base_url: str = "http://localhost:8083/v1",
+        model: str = "local-primary",
         api_key: str = "EMPTY",
         k: int = 4,
         thresholds: Optional[dict] = None,

@@ -1,14 +1,14 @@
 /* walkthrough_real.js — 真实 35B 端到端走查（代理被试降级版）
  *
- * 目的：在真实 llama-server(8082) + 后端(8770) 在线状态下，驱动原型跑一条真实任务，
+ * 目的：在真实 llama-server(8083) + 后端(8770) 在线状态下，驱动原型跑一条真实任务，
  *   采集「推演四态 / 执行凭据 / P0–P2 能力触发」的真实数据，作为 M3 验收清单草稿。
  *
  * 诚实声明：本脚本是「系统自身作为代理被试」的降级走查（M-EXPERIMENT §10 允许），
  *   不是真人被试。s1–s5 由 agent 依真实系统行为代理评估，并在产出中明确标注
  *   arm='proxy-agent' / human=false，不得与真人 M2 数据混用。
  *
- * 不 mock fetch、不 stub WS：推演打到 8770 + 8082，执行是真 LLM 流式。
- * 35B 单槽，顺序跑；单槽拥塞时推演可能走 local/offline 兜底——如实记录，不伪造通过。
+ * 不 mock fetch、不 stub WS：推演打到 8770 + 8083，执行是真 LLM 流式。
+ * 主力模型单槽，顺序跑；单槽拥塞时推演可能走 local/offline 兜底——如实记录，不伪造通过。
  */
 const { chromium } = require('playwright-core');
 const fs = require('fs');
@@ -35,7 +35,7 @@ const check = (name, ok, extra = '') => {
   page.on('pageerror', e => errors.push('PAGEERR ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE ' + m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.runs, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.runs, null, { timeout: 20000 });
 
   const report = {
     meta: {
@@ -51,7 +51,7 @@ const check = (name, ok, extra = '') => {
   console.log('\n=== 主流程：真实发送 + 真实推演 + 真实执行 ===');
   await page.fill('#msgInput', TASK);
   await page.click('#sendBtn');                       // 真实 click → sendMessage → 真实 runForecast
-  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, { timeout: 90000 }).catch(() => {});
+  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null, { timeout: 90000 }).catch(() => {});
   const fc = await page.evaluate(() => ({
     candCount: window.__cockpit.candidates.length,
     candLabels: window.__cockpit.candidates.map(c => c.label),
@@ -63,13 +63,13 @@ const check = (name, ok, extra = '') => {
   const t0 = Date.now();
   await page.evaluate(() => { window.__cockpit._kbNav(0); window.__cockpit._kbGo(); });
   await page.waitForFunction(
-    () => window.__cockpit.execState.done === true && window.__cockpit.runCount >= 1,
+    () => window.__cockpit.execState.done === true && window.__cockpit.runCount >= 1, null,
     { timeout: 180000 }
   ).catch(() => {});
-  const wall = Date.now() - t0;
+  let wall = Date.now() - t0;
 
-  const r0 = await page.evaluate(() => {
-    const r = window.__cockpit.runs[0] || {};
+  const readRun = (i) => page.evaluate((idx) => {
+    const r = window.__cockpit.runs[idx] || {};
     return {
       status: r.status,
       forecast_kind: r.forecast && r.forecast.kind,
@@ -84,7 +84,47 @@ const check = (name, ok, extra = '') => {
       output_head: String(r.output || '').slice(0, 60),
       future_count: window.__cockpit.future.length,
     };
-  });
+  }, i);
+
+  let r0 = await readRun(0);
+  // 新主力模型（8083 local-primary）对模糊任务可能以「反问澄清」收尾——clarify 是合法四态，
+  // 不是失败。作为代理被试（M-EXPERIMENT §10），如实记录该轮，再像真人一样补一个具体化
+  // 追问、重新真实执行，让走查覆盖 done 路径。最多补答 2 次；仍 clarify 则如实报 FAIL。
+  let clarifyRounds = 0;
+  while (r0.status === 'clarify' && clarifyRounds < 2) {
+    clarifyRounds++;
+    console.log(`  · 第 ${clarifyRounds} 轮为 clarify（模型反问，合法四态），代理被试补具体化追问后重试`);
+    report.steps.push({ step: 'execute_clarify_retry', round: clarifyRounds, ...r0 });
+    await page.fill('#msgInput', TASK + '，请直接给出结论');
+    await page.click('#sendBtn');
+    await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null,
+      { timeout: 90000 }).catch(() => {});
+    await page.evaluate(() => { window.__cockpit._kbNav(0); window.__cockpit._kbGo(); });
+    await page.waitForFunction(
+      () => window.__cockpit.execState.done === true && window.__cockpit.runCount >= clarifyRounds + 1, null,
+      { timeout: 180000 }
+    ).catch(() => {});
+    wall = Date.now() - t0;
+    r0 = await page.evaluate(() => {
+      const n = window.__cockpit.runs.length;
+      const r = window.__cockpit.runs[n - 1] || {};
+      return {
+        status: r.status,
+        forecast_kind: r.forecast && r.forecast.kind,
+        forecast_notes: r.forecast && r.forecast.notes,
+        exec_source: r.exec && r.exec.source,
+        elapsed_ms: r.exec && r.exec.elapsed_ms,
+        tokens: r.exec && r.exec.tokens,
+        chars: String(r.output || '').length,
+        chain: r.exec && r.exec.chain,
+        label: r.label,
+        parent_run_id: r.parent_run_id,
+        output_head: String(r.output || '').slice(0, 60),
+        future_count: window.__cockpit.future.length,
+      };
+    });
+  }
+  if (clarifyRounds) r0.clarify_retries = clarifyRounds;
   console.log(`  · 状态=${r0.status} 推演=${r0.forecast_kind} 执行来源=${r0.exec_source} 耗时=${r0.elapsed_ms}ms 字数=${r0.chars} chain=${JSON.stringify(r0.chain)}`);
   report.steps.push({ step: 'execute', wall_ms: wall, ...r0 });
 
@@ -157,10 +197,10 @@ const check = (name, ok, extra = '') => {
   if (!hasCand){
     await page.fill('#msgInput', '那中长期交易的定价机制具体是怎样的？');
     await page.click('#sendBtn');
-    await page.waitForFunction(() => window.__cockpit.candidates.length > 0, { timeout: 90000 }).catch(() => {});
+    await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null, { timeout: 90000 }).catch(() => {});
   }
   await page.evaluate(() => { window.__cockpit._kbNav(0); window.__cockpit._kbGo(); });
-  const entered = await page.waitForFunction(() => window.__cockpit.execState.done === false, { timeout: 15000 })
+  const entered = await page.waitForFunction(() => window.__cockpit.execState.done === false, null, { timeout: 15000 })
     .then(() => true).catch(() => false);
   console.log(`  · 是否进入第二次执行态（done=false）=${entered}`);
   let afterCancel = { skipped: !entered };
@@ -168,7 +208,7 @@ const check = (name, ok, extra = '') => {
     await page.waitForTimeout(2500); // 让真实流式跑 2.5s
     const beforeCancel = await page.evaluate(() => ({ done: window.__cockpit.execState.done, kbGroup: window.__cockpit.kbGroup }));
     await page.evaluate(() => window.__cockpit._stopGen());   // 真实 cancel → 后端 abort 流式
-    await page.waitForFunction(() => window.__cockpit.execState.done === true, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction(() => window.__cockpit.execState.done === true, null, { timeout: 30000 }).catch(() => {});
     afterCancel = await page.evaluate((before) => {
       const runs = window.__cockpit.runs;
       const second = runs[before] || {};   // runCountBefore 之后的那条 = 第二次执行的 run

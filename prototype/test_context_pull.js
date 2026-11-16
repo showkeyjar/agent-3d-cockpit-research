@@ -18,7 +18,7 @@ async function explore(page, question, tag){
   await page.evaluate(q => window.__cockpit.setContext(q), question);
   if (tag) await page.evaluate(t => window.__cockpit.addContextTag(t, '语义风景·第1轮'), tag);
   await page.evaluate(() => window.__cockpit._exploreNext([8, 0, 8], '', []));
-  await page.waitForFunction(() => window.__cockpit.kbFutures.length >= 3, { timeout: 15000 });
+  await page.waitForFunction(() => window.__cockpit.kbFutures.length >= 3, null, { timeout: 15000 });
   return page.evaluate(() => ({
     labels: window.__cockpit.kbFutures.map(x => x.label),
     badge: window.__cockpit.proofBadge,

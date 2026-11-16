@@ -55,13 +55,13 @@ function collect(page) {
     p0.on('pageerror', e => errors.push('baseline pageerror: ' + e.message));
     p0.on('console', m => { if (m.type() === 'error') errors.push('baseline console: ' + m.text()); });
     await p0.goto(URL, { waitUntil: 'load' });
-    await p0.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalCamDist !== undefined, { timeout: 20000 });
+    await p0.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalCamDist !== undefined, null, { timeout: 20000 });
     await sleep(500);
     await p0.evaluate(() => window.__cockpit.setupTestArrival([8, 0, 8]));
     await p0.waitForFunction(() => {
       const s = window.__cockpit.signs.filter(x => x.userData.branchId === -2);
       return s.length && s.every(x => x.scale.x > 0.98);
-    }, { timeout: 20000 });
+    }, null, { timeout: 20000 });
     await sleep(350);
     const base = await collect(p0);
     await p0.close();
@@ -71,7 +71,7 @@ function collect(page) {
     page.on('pageerror', e => errors.push('dock pageerror: ' + e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push('dock console: ' + m.text()); });
     await page.goto(URL, { waitUntil: 'load' });
-    await page.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalCamDist !== undefined, { timeout: 20000 });
+    await page.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalCamDist !== undefined, null, { timeout: 20000 });
     await sleep(500);
     await page.evaluate(async () => { await window.__cockpit._driveTo([8, 0, 8], { arrivalDock: true }); });
     await sleep(250);
@@ -79,7 +79,7 @@ function collect(page) {
     await page.waitForFunction(() => {
       const s = window.__cockpit.signs.filter(x => x.userData.branchId === -2);
       return s.length && s.every(x => x.scale.x > 0.98);
-    }, { timeout: 20000 });
+    }, null, { timeout: 20000 });
     await sleep(350);
     const d = await collect(page);
 

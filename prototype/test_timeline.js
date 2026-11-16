@@ -52,7 +52,7 @@ async function newPage(browser, errors) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.runs), { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.runs), null, { timeout: 20000 });
   await sleep(400);
   return page;
 }
@@ -279,7 +279,7 @@ async function newPage(browser, errors) {
   check('重走把原问题放回输入框、收起面板、挂上一次性钩子',
     hook.input === CONTEXT && hook.open === false, JSON.stringify(hook));
 
-  await page.waitForFunction(() => window.__cockpit.execState.done === false, { timeout: 25000 });
+  await page.waitForFunction(() => window.__cockpit.execState.done === false, null, { timeout: 25000 });
   const executing = await page.evaluate(() => ({
     exec: window.__cockpit.execState,
     wsLog: window.__cockpit.wsLog,
@@ -300,7 +300,7 @@ async function newPage(browser, errors) {
     tasks: [{ name: 'output', sub: '模型生成', status: 'done' }], label: '查资料',
     planned_steps: [], clarify: false,
   }));
-  await page.waitForFunction(() => window.__cockpit.runCount === 3, { timeout: 30000 });
+  await page.waitForFunction(() => window.__cockpit.runCount === 3, null, { timeout: 30000 });
   const after = await page.evaluate(() => ({
     runs: window.__cockpit.runs,
     nodes: window.__cockpit.timelineNodes,

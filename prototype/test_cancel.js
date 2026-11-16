@@ -46,7 +46,7 @@ async function newPage(browser, errors) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.stopBtnState !== undefined, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.stopBtnState !== undefined, null, { timeout: 20000 });
   await sleep(350);
   await page.evaluate(m => {
     window.__cockpit._stubWs(true);
@@ -234,7 +234,7 @@ const snap = page => page.evaluate(() => {
     output:'', tasks:[], chain:['clarify'], source:'llm', tokens:6,
     elapsed_ms:900, label:'先查资料', interrupted:false,
   }));
-  await page.waitForFunction(() => window.__cockpit.resultCardOpen, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => window.__cockpit.resultCardOpen, null, { timeout: 15000 }).catch(() => {});
   await sleep(900);   // 等 driveTo 行驶插值彻底收敛，再量机位偏离
   s = await snap(page);
   check('F2 澄清卡不带 interrupted/fail 样式，中断说明条复位',

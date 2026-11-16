@@ -3,7 +3,7 @@ const { resolveChromePath } = require('./chrome_helper');
 //  A. 路牌明显比风景更「重」：未来牌不透明度(0.92) > 风景图卡不透明度(0.38)，且风景图卡更少、更小、renderOrder 更低
 //  B. 路牌更近更大：未来牌起点 5.5m（原 8.0），牌面 width 明显大于风景图卡 scale；
 //     （到达牌侧移已在「UX 五修」取消，改为钉在路面中心线上，故此处断言 0；由 test_ux_fixes5.js 复核）
-// 用法：node test_ux_fixes4.js   （需 8770 与 8082 在线）
+// 用法：node test_ux_fixes4.js   （需 8770 与 8083 在线）
 const { chromium } = require('playwright-core');
 
 const EXE = resolveChromePath();
@@ -18,7 +18,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   page.on('console', m => { if (m.type() === 'error') errors.push('console:' + m.text()); });
 
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.camYaw === 'number', { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.camYaw === 'number', null, { timeout: 20000 });
 
   // 发任务并真实执行，直到出现到达牌 + 未来牌
   await page.fill('#msgInput', '请分析国内电力交易市场的格局，并查资料说明现货与中长期交易的区别');
@@ -26,7 +26,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.waitForFunction(() => {
     const s = window.__cockpit.signs;
     return s && s.some(b => b.userData && b.userData.branchId >= 0);
-  }, { timeout: 60000 });
+  }, null, { timeout: 60000 });
 
   const picked = await page.evaluate(async () => {
     const signs = window.__cockpit.signs;
@@ -42,7 +42,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.waitForFunction(() => {
     const clar = document.querySelector('#rcAnswerInput');
     return (clar && clar.offsetParent !== null) || window.__cockpit.hasArrival;
-  }, { timeout: 120000 });
+  }, null, { timeout: 120000 });
   const clarVisible = await page.evaluate(() => {
     const c = document.querySelector('#rcAnswerInput');
     return c && c.offsetParent !== null;
@@ -51,12 +51,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.fill('#rcAnswerInput', '请聚焦现货和中长期两类');
     await page.click('#rcAnswerBtn');
   }
-  await page.waitForFunction(() => window.__cockpit.hasArrival, { timeout: 120000 });
+  await page.waitForFunction(() => window.__cockpit.hasArrival, null, { timeout: 120000 });
   // 等真实未来牌（-3..-7）出现
   await page.waitForFunction(() => {
     const fs = window.__cockpit.futureSigns || [];
     return fs.length > 0;
-  }, { timeout: 60000 });
+  }, null, { timeout: 60000 });
   await sleep(2500); // 等风景重建
 
   const data = await page.evaluate(() => ({

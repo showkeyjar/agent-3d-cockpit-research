@@ -21,17 +21,17 @@ function snap(page){return page.evaluate(()=>{
   for(let i=1;i<=6;i++){
     const page=await browser.newPage({viewport:{width:1280,height:800}});
     await page.goto('http://127.0.0.1:8770/',{waitUntil:'load'});
-    await page.waitForFunction(()=>window.__cockpit&&window.__cockpit.candidates,{timeout:20000});
+    await page.waitForFunction(()=>window.__cockpit&&window.__cockpit.candidates, null,{timeout:20000});
     await page.fill('#msgInput',TASK);
     await page.click('#sendBtn');
-    await page.waitForFunction(()=>window.__cockpit.candidates.length>0,{timeout:60000});
+    await page.waitForFunction(()=>window.__cockpit.candidates.length>0, null,{timeout:60000});
     const cands=await page.evaluate(()=>window.__cockpit.candidates.map(c=>c.label));
     let idx=cands.findIndex(l=>(l||'').includes('查资料')); if(idx<0) idx=1;
     const pos=await page.evaluate((idx)=>{const s=window.__cockpit.signs.find(x=>x.userData&&x.userData.branchId===idx);
       if(!s)return null; const v=new window.__cockpit.THREE.Vector3(); s.getWorldPosition(v);
       return window.__cockpit.projectToScreen(v.x,v.y,v.z);},idx);
     await page.mouse.dblclick(pos.x,pos.y);
-    await page.waitForFunction(()=>{const c=document.getElementById('resultCard');return c&&c.classList.contains('show');},{timeout:120000});
+    await page.waitForFunction(()=>{const c=document.getElementById('resultCard');return c&&c.classList.contains('show');}, null,{timeout:120000});
     await page.waitForTimeout(1500);
     const s=await snap(page);
     console.log(`RUN ${i}: isClarify=${s.isClarify} cardShown=${s.cardShown} candidateSigns=${s.candidateSigns}` + (s.question?` question="${s.question.slice(0,40)}..."`:''));

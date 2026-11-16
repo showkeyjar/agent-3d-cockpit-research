@@ -6,34 +6,35 @@
     "human": false,
     "note": "系统自身作为代理被试的降级走查，非真人 M2 数据；s1–s5 为 agent 依真实系统行为代理评估",
     "task": "国内电力交易市场的格局",
-    "ts": "2026-11-13T06:31:00.253Z"
+    "ts": "2026-11-16T04:34:47.727Z"
   },
   "steps": [
     {
       "step": "forecast",
-      "candCount": 4,
+      "candCount": 5,
       "candLabels": [
-        "针对「你关注的这件事」直接动手",
-        "围绕「你关注的这件事」查资料",
-        "先问清楚",
-        "分步推理"
+        "拆解格局",
+        "对照国内电力交易市场",
+        "核算格局",
+        "落地国内电力交易市场",
+        "汇总格局"
       ]
     },
     {
       "step": "execute",
-      "wall_ms": 14895,
+      "wall_ms": 17425,
       "status": "done",
       "forecast_kind": "fast",
       "exec_source": "llm",
-      "elapsed_ms": 13750,
-      "tokens": 84,
-      "chars": 136,
+      "elapsed_ms": 16327,
+      "tokens": 98,
+      "chars": 161,
       "chain": [
         "output"
       ],
-      "label": "针对「你关注的这件事」直接动手",
+      "label": "拆解格局",
       "parent_run_id": null,
-      "output_head": "国内电力交易市场呈现多层级、多模式格局，由国家统一监管，省级电力交易中心主导。主要交易类型包括年度长协、月度集中竞价、实",
+      "output_head": "国内电力交易市场格局已形成“中长期交易为主、现货试点为辅、辅助服务与绿证交易补充”的三层结构：国家层面由国家电网、南方电",
       "future_count": 0
     },
     {
@@ -47,13 +48,13 @@
       },
       "export": {
         "ok": true,
-        "len": 2358
+        "len": 2395
       }
     },
     {
       "step": "p2_capabilities",
-      "scnCount": 20,
-      "scnCards": 20,
+      "scnCount": 23,
+      "scnCards": 22,
       "scnOk": true,
       "scnErr": "",
       "kbOk": true,

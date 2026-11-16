@@ -12,12 +12,12 @@ const TASK = '国内电力交易市场的格局？';
   page.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()); });
 
   await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, null, { timeout: 20000 });
 
   // 发任务
   await page.fill('#msgInput', TASK);
   await page.click('#sendBtn');
-  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, { timeout: 60000 });
+  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null, { timeout: 60000 });
 
   // 点「查资料」分支
   const cands = await page.evaluate(() => window.__cockpit.candidates.map(c => c.label));
@@ -36,7 +36,7 @@ const TASK = '国内电力交易市场的格局？';
   await page.waitForFunction(() => {
     const c = document.getElementById('resultCard');
     return c && c.classList.contains('show');
-  }, { timeout: 120000 });
+  }, null, { timeout: 120000 });
   // 若模型走澄清：补答后重跑，直到拿到真正「到达」（非澄清）的卡再校验联动
   let isClarify = await page.evaluate(() => document.getElementById('resultCard').classList.contains('clarify'));
   if (isClarify){
@@ -45,7 +45,7 @@ const TASK = '国内电力交易市场的格局？';
     await page.waitForFunction(() => {
       const c = document.getElementById('resultCard');
       return c && c.classList.contains('show') && !c.classList.contains('clarify');
-    }, { timeout: 120000 });
+    }, null, { timeout: 120000 });
   }
   await page.waitForTimeout(1500);
 

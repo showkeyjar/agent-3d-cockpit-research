@@ -28,8 +28,8 @@ npm install                          # 装 playwright-core，chrome_helper.js �
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `LLM_BASE_URL` | `http://localhost:8082/v1` | 本地 llama-server（35B）OpenAI 兼容端点 |
-| `LLM_MODEL` | `qwen3.6-35b` | 与 `start-server-35b.bat` 的 `-a` 别名一致 |
+| `LLM_BASE_URL` | `http://localhost:8083/v1` | 本地 llama-server 唯一主力模型 OpenAI 兼容端点 |
+| `LLM_MODEL` | `local-primary` | 与 llama-server 启动 `-a` 注册的别名一致（2026-11-16 起本机仅此一个模型） |
 | `LLM_EMBEDDING_MODEL` | 空（用哈希） | 配置后走真实 embedding API（语义档 eps 0.38）；留空用 hashed-TF（eps 0.60，诚实近似）。须与 `LLM_MODEL` 不同才生效 |
 | `PORT` | `8770` | 后端监听端口 |
 | `COCKPIT_PYTHON` | 当前解释器 | 看门狗用来拉起 uvicorn 的 python 路径 |

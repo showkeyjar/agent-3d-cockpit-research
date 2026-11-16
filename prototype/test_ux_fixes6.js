@@ -19,14 +19,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   try {
     await page.goto(URL, { waitUntil: 'load' });
-    await page.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalYOffset !== undefined, { timeout: 20000 });
+    await page.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalYOffset !== undefined, null, { timeout: 20000 });
     await sleep(500);
     await page.evaluate(() => window.__cockpit.setupTestArrival([8, 0, 8]));
     // 无头首帧可能被阻塞，等落地动画真正收敛而不是死等固定毫秒
     await page.waitForFunction(() => {
       const s = window.__cockpit.signs.filter(x => x.userData.branchId === -2);
       return s.length >= 1 && s.every(x => x.scale.x > 0.98);
-    }, { timeout: 20000 });
+    }, null, { timeout: 20000 });
     await sleep(400);   // 让相机跟到新的 currentPos
 
     const d = await page.evaluate(() => {

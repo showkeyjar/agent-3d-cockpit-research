@@ -13,7 +13,7 @@ const probe = (port) => new Promise(res => {
 });
 
 async function main() {
-  console.log('llama-8082:', await probe(8082));
+  console.log('llama-8083:', await probe(8083));
   console.log('backend-8770:', await probe(8770));
 
   const browser = await chromium.launch({ headless: true, executablePath: CHROME });

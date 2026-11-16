@@ -20,7 +20,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   await page.goto('http://127.0.0.1:8770/', { waitUntil: 'networkidle' });
   await sleep(800);
-  await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.rebuildScenery === 'function', { timeout: 8000 });
+  await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.rebuildScenery === 'function', null, { timeout: 8000 });
 
   // ── A. 重建风景：沿途概念图卡有内容且每张带 text/src/kind ──
   console.log('\n[A] 重建风景 + 图卡元数据');

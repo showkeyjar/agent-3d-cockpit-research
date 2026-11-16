@@ -5,7 +5,7 @@ const { resolveChromePath } = require('./chrome_helper');
 //  B. 真实执行到达后：无 16m 光柱、到达牌回 midline、结果卡有互动提示条、
 //     联动牌提示为「点击收起结果」、无 gaze/距离回弹、机位仍贴轨。
 //  C. 点同一块到达牌可展开/收起结果面板，提示文案随之切换。
-// 用法：node test_ux_fixes5.js   （需 8770 与 8082 在线；35B 单槽，勿并发跑其它 3D 测试）
+// 用法：node test_ux_fixes5.js   （需 8770 与 8083 在线；主力模型单槽，勿并发跑其它 3D 测试）
 const { chromium } = require('playwright-core');
 
 const EXE = resolveChromePath();
@@ -26,7 +26,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       page.on('pageerror', e => errors.push('A pageerror: ' + e.message));
       page.on('console', m => { if (m.type() === 'error') errors.push('A console: ' + m.text()); });
       await page.goto(URL, { waitUntil: 'load' });
-      await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.camOffRail === 'number', { timeout: 20000 });
+      await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.camOffRail === 'number', null, { timeout: 20000 });
       await sleep(700);
 
       const before = await page.evaluate(() => ({
@@ -78,13 +78,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       page.on('console', m => { if (m.type() === 'error') errors.push(`B${attempt} console: ` + m.text()); });
       try {
         await page.goto(URL, { waitUntil: 'load' });
-        await page.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalBeamCount !== undefined, { timeout: 20000 });
+        await page.waitForFunction(() => window.__cockpit && window.__cockpit.arrivalBeamCount !== undefined, null, { timeout: 20000 });
         await page.fill('#msgInput', TASK);
         await page.click('#sendBtn');
         await page.waitForFunction(() => {
           const s = window.__cockpit.signs;
           return s && s.some(b => b.userData && b.userData.branchId >= 0);
-        }, { timeout: 90000 });
+        }, null, { timeout: 90000 });
 
         const picked = await page.evaluate(() => {
           const signs = window.__cockpit.signs;
@@ -102,7 +102,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           await page.waitForFunction(() => {
             const c = document.querySelector('#rcAnswerInput');
             return (c && c.offsetParent !== null) || window.__cockpit.resultCardOpen;
-          }, { timeout: 150000 });
+          }, null, { timeout: 150000 });
           const clar = await page.evaluate(() => {
             const c = document.querySelector('#rcAnswerInput');
             return !!c && c.offsetParent !== null;
@@ -111,7 +111,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           await page.fill('#rcAnswerInput', '请聚焦现货与中长期两类交易，说明各自如何定价与规避风险');
           await page.click('#rcAnswerBtn');
         }
-        await page.waitForFunction(() => window.__cockpit.hasArrival && window.__cockpit.resultCardOpen,
+        await page.waitForFunction(() => window.__cockpit.hasArrival && window.__cockpit.resultCardOpen, null,
           { timeout: 150000 });
         await sleep(600);   // 让落地动画/光晕稳定
 

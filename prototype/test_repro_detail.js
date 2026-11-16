@@ -11,11 +11,11 @@ const CHROME = resolveChromePath();
   page.on('pageerror', e => logs.push('PAGEERR: ' + e.message));
 
   await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, null, { timeout: 20000 });
 
   await page.fill('#msgInput', '国内电力交易市场的格局？');
   await page.click('#sendBtn');
-  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, { timeout: 60000 });
+  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null, { timeout: 60000 });
 
   const cands = await page.evaluate(() => window.__cockpit.candidates.map(c => c.label));
   let idx = cands.findIndex(l => (l || '').includes('查资料'));
@@ -32,7 +32,7 @@ const CHROME = resolveChromePath();
   await page.mouse.dblclick(pos.x, pos.y);
 
   await page.waitForFunction(
-    () => document.getElementById('resultCard') && document.getElementById('resultCard').classList.contains('show'),
+    () => document.getElementById('resultCard') && document.getElementById('resultCard').classList.contains('show'), null,
     { timeout: 120000 }
   );
   await page.waitForTimeout(4000); // 等 autoExploreNext 拉取

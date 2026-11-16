@@ -2,7 +2,7 @@ const { resolveChromePath } = require('./chrome_helper');
 // 验证本轮两项修复：
 //  A. 视角自由 + 摄像机不脱轨：拖拽改变 yaw 后，空闲 4s 内 yaw 不应被强制拉回 travelYaw（脱轨修复）
 //  B. 风景有意义：概念短语应为长度≥2 的可读词语/短句，不得是单字或滑窗碎片（如「力交」）
-// 用法：node test_ux_fixes3.js   （需 8770 与 8082 在线）
+// 用法：node test_ux_fixes3.js   （需 8770 与 8083 在线）
 const { chromium } = require('playwright-core');
 
 const EXE = resolveChromePath();
@@ -17,7 +17,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   page.on('console', m => { if (m.type() === 'error') errors.push('console:' + m.text()); });
 
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.camYaw === 'number', { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && typeof window.__cockpit.camYaw === 'number', null, { timeout: 20000 });
 
   // ── A. 自由视角 + 不脱轨 ──
   const before = await page.evaluate(() => ({ yaw: window.__cockpit.camYaw, ty: window.__cockpit.travelYaw }));
@@ -44,7 +44,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.waitForFunction(() => {
     const s = window.__cockpit.signs;
     return s && s.some(b => b.userData && b.userData.branchId >= 0);
-  }, { timeout: 60000 });
+  }, null, { timeout: 60000 });
 
   // 双击「查资料」类候选的 3D 路牌触发真实执行（与 test_ux_fixes2 一致）
   const picked = await page.evaluate(async () => {
@@ -62,7 +62,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.waitForFunction(() => {
     const clar = document.querySelector('#rcAnswerInput');
     return (clar && clar.offsetParent !== null) || window.__cockpit.hasArrival;
-  }, { timeout: 120000 });
+  }, null, { timeout: 120000 });
 
   // 若有澄清，填一个简短回答让其继续
   const clarVisible = await page.evaluate(() => {
@@ -72,7 +72,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   if (clarVisible) {
     await page.fill('#rcAnswerInput', '请聚焦现货和中长期两类');
     await page.click('#rcAnswerBtn');
-    await page.waitForFunction(() => window.__cockpit.hasArrival, { timeout: 120000 });
+    await page.waitForFunction(() => window.__cockpit.hasArrival, null, { timeout: 120000 });
   }
   await sleep(2500); // 等风景重建
 

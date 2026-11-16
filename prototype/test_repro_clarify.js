@@ -11,14 +11,14 @@ const CHROME = resolveChromePath();
   page.on('pageerror', e => logs.push('PAGEERR: ' + e.message));
 
   await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.candidates, null, { timeout: 20000 });
 
   // 1) 输入任务
   await page.fill('#msgInput', '国内电力交易市场的格局？');
   await page.click('#sendBtn');
 
   // 2) 等候选牌
-  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, { timeout: 60000 });
+  await page.waitForFunction(() => window.__cockpit.candidates.length > 0, null, { timeout: 60000 });
   const cands = await page.evaluate(() => window.__cockpit.candidates.map(c => c.label));
   let idx = cands.findIndex(l => (l || '').includes('查资料'));
   if (idx < 0) idx = 0;
@@ -38,7 +38,7 @@ const CHROME = resolveChromePath();
 
   // 4) 等结果卡出现（clarify 也会弹卡）
   await page.waitForFunction(
-    () => document.getElementById('resultCard') && document.getElementById('resultCard').classList.contains('show'),
+    () => document.getElementById('resultCard') && document.getElementById('resultCard').classList.contains('show'), null,
     { timeout: 120000 }
   );
 
@@ -74,7 +74,7 @@ const CHROME = resolveChromePath();
         const c = document.getElementById('resultCard');
         return c && c.classList.contains('show') &&
                !c.classList.contains('clarify'); // 第二轮应不再是 clarify
-      },
+      }, null,
       { timeout: 120000 }
     ).catch(() => {});
     await page.waitForTimeout(3000);

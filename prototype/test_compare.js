@@ -39,7 +39,7 @@ const FORECAST = {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.candidates), { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && Array.isArray(window.__cockpit.candidates), null, { timeout: 20000 });
   await sleep(400);
 
   // 注入真实推演结果（llm 来源 + 3 候选 + 2 簇）

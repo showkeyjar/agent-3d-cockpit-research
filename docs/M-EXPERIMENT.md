@@ -145,7 +145,7 @@ ts             ISO8601 填写时间
 
 ## 11. 复现清单（实验员逐步）
 
-1. 启动服务：`8770` uvicorn（后端直出静态页）+ `8082` 35B llama-server；确认 `8082/health=200` 且槽空闲（单槽，勿并发）。
+1. 启动服务：`8770` uvicorn（后端直出静态页）+ `8083` llama-server（唯一主力模型）；确认 `8083/health=200` 且槽空闲（单槽，勿并发）。
 2. 实验员浏览器打开 `tools/m-instrument.html`。
 3. 被试知情同意 → 自动分配 arm → 按提示打开对应原型 URL + 任务脚本。
 4. 出声思维执行任务 → 填量表 → 访谈。
@@ -159,10 +159,10 @@ ts             ISO8601 填写时间
 
 > M-EXPERIMENT §10 允许「真实用户优先、代理被试降级标注」。以下为系统自身作为代理被试的端到端走查，验证装置可跑通、并产出 M3 清单草稿基线；**非真人 M2 数据，s1–s5 为 agent 依真实系统行为代理评估，不得与真人数据混用**。
 
-- **工具**：`prototype/walkthrough_real.js`（playwright-core，Chrome 路径经 `prototype/chrome_helper.js` 解析，驱动真实 8770 + 8082；`walkthrough_real.json` 为产出，schema 对齐 m-instrument：含 `meta.arm='proxy-agent'/human=false`、`steps`、`m3_proxy`）。
+- **工具**：`prototype/walkthrough_real.js`（playwright-core，Chrome 路径经 `prototype/chrome_helper.js` 解析，驱动真实 8770 + 8083；`walkthrough_real.json` 为产出，schema 对齐 m-instrument：含 `meta.arm='proxy-agent'/human=false`、`steps`、`m3_proxy`）。
 - **结果（2026-11-13，真实 35B）**：主执行 `status=done / forecast_kind=fast / exec_source=llm / 13.7s / 136字 / chain=["output"]`；到达后铺出 4 块下一步未来路牌；P1（时间线/候选对比/导出）P2（风景回看/键盘选路）全可触发；第二次执行中途 `_stopGen` 进入 `interrupted` 态并在结果卡如实显示「这一步已由你主动停止…不生成已完成路牌」，不伪造完成。共 **15/15 通过，0 JS 错误**。
 - **M3 代理草稿基线**：s1–s5=6，found_product/named_step/recited_evidence=1（代理评估，须真人复测）。
 
 ### 已知修复（走查中发现，已合并 v0.9.22）
 
-- **「第二轮路牌消失」回归点（P3 信息层）**：`autoExploreNext` 原调用 `GET /api/forecast` 未传 `fast`，后端 `get_forecaster(fast=bool(fast))` 落到完整推演器（占 35B 单槽，实测 21.6s）。第一次 execute 释放槽后未来牌推演排队+生成，总延迟 20s+ 才回填，用户感知为「路牌消失」。修复：`autoExploreNext` 改传 `&fast=1` → 后端 `bool(1)=True` → 纯本地 forecaster 实例，实测 **17ms** 秒级返回，`source` 如实标 `local`。下一方向本就是快速预览，与主推演 fast 通道一致；未来牌秒级铺出后 `proofKind` 诚实标本地兜底。走查复测 `future=4`（秒级）。**复现提示**：M2 实验员若见 A/B 组未来牌延迟，先确认此修复已在位、且 `8082` 槽未被并发占用。
+- **「第二轮路牌消失」回归点（P3 信息层）**：`autoExploreNext` 原调用 `GET /api/forecast` 未传 `fast`，后端 `get_forecaster(fast=bool(fast))` 落到完整推演器（占 35B 单槽，实测 21.6s）。第一次 execute 释放槽后未来牌推演排队+生成，总延迟 20s+ 才回填，用户感知为「路牌消失」。修复：`autoExploreNext` 改传 `&fast=1` → 后端 `bool(1)=True` → 纯本地 forecaster 实例，实测 **17ms** 秒级返回，`source` 如实标 `local`。下一方向本就是快速预览，与主推演 fast 通道一致；未来牌秒级铺出后 `proofKind` 诚实标本地兜底。走查复测 `future=4`（秒级）。**复现提示**：M2 实验员若见 A/B 组未来牌延迟，先确认此修复已在位、且 `8083` 槽未被并发占用。

@@ -23,7 +23,7 @@ async function main() {
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('favicon')) errors.push('CONSOLE: ' + m.text()); });
 
   await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__cockpit && window.__cockpit.camOffRail !== undefined, { timeout: 20000 });
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.camOffRail !== undefined, null, { timeout: 20000 });
   await sleep(800);
 
   // setupTestArrival 造出一块到达牌 + 结果数据；_triggerArrival 现在只打开结果卡
@@ -53,7 +53,7 @@ async function main() {
   // 落地动画完成（headless swiftshader 首帧可能被阻塞 ~1s，等收敛而非固定 sleep）
   let landed = false;
   try {
-    await page.waitForFunction(() => window.__cockpit._arrivalSequence().lastSignScale === 1, { timeout: 8000 });
+    await page.waitForFunction(() => window.__cockpit._arrivalSequence().lastSignScale === 1, null, { timeout: 8000 });
     landed = true;
   } catch (_) { /* 超时由下方断言报出 */ }
   const t1 = await page.evaluate(() => ({
