@@ -19,6 +19,7 @@ JS_TESTS=(
   test_cancel.js
   test_timeline.js
   test_sign_topics.js
+  test_rail_camera.js
 )
 
 fail=0

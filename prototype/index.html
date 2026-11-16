@@ -407,20 +407,10 @@
     border-radius:50%;flex:none;box-sizing:border-box;}
   #legend b{color:var(--text);font-weight:600;min-width:52px;}
 
-  /* ── 多智能体状态面板：预览车队实时进度 ── */
-  #agentPanel{position:fixed;left:16px;top:108px;width:268px;z-index:18;display:none;
-    background:rgba(8,12,28,.6);border:1px solid var(--border);border-radius:10px;
-    padding:9px 12px;backdrop-filter:blur(15px);box-shadow:0 4px 20px rgba(0,0,0,.4);
-    font-size:11px;color:var(--muted);}
-  #agentPanel.show{display:block;}
-  #agentPanel .ap-title{font-size:11px;color:#cfe4ff;margin-bottom:5px;}
-  #agentPanel .ap-title b{color:var(--text);font-weight:600;}
-  #agentPanel .ap-row{display:flex;align-items:center;gap:8px;margin:3px 0;line-height:1.4;}
-  #agentPanel .ap-row.main{border-top:1px dashed rgba(94,224,255,.25);padding-top:5px;margin-top:5px;}
-  #agentPanel .ap-dot{width:8px;height:8px;border-radius:50%;flex:none;}
-  #agentPanel .ap-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
-  #agentPanel .ap-name.main{color:#cfe4ff;}
-  #agentPanel .ap-pct{width:40px;text-align:right;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  /* ── 多智能体状态面板（预览车队）已删除（v0.9.28）──
+     P1 诚实红线：车队的「进度 %」是无数据来源的循环动画（t 回环、pct 假进度，
+     到 100% 瞬间折返重来），属于剧场残留。候选信息由路牌 / 卡片 / 对比面板
+     （comparePanel）承担，不再用假进度暗示「多条路在并行推进」。 */
   /* ── Loading / Toast ── */
   #loader{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
     background:#02030a;color:var(--cyan);font-size:13px;letter-spacing:2px;transition:opacity .8s;}
@@ -484,7 +474,7 @@
 /* ── P6 沉浸形态：沉浸时桌面层抽屉化，只留环境与提示条 ── */
 body.immersive #headbar, body.immersive #thinkBar, body.immersive #cardContainer,
 body.immersive #taskBar, body.immersive #taskWidgets, body.immersive #historyPanel,
-body.immersive #agentPanel, body.immersive #explainCard, body.immersive #legend,
+body.immersive #explainCard, body.immersive #legend,
 body.immersive #timelinePanel,
 body.immersive #inputBar, body.immersive #nowBar { opacity:.12; pointer-events:none; transition:opacity .5s ease; }
 #immersiveHud{display:none;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
@@ -895,11 +885,6 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <div class="tl-detail" id="tlDetail"></div>
     <div class="tl-compare" id="tlCompare"></div>
   </div>
-</div>
-
-<div id="agentPanel">
-  <div class="ap-title" id="apTitle">智能体状态 · 预览车队</div>
-  <div id="apRows"></div>
 </div>
 
 <div id="explainCard">
@@ -3076,7 +3061,6 @@ function applyForecastResult(msg){
 
     // 直道模式也出卡片，让用户看清将要做什么、双击出发
     setBranchLabel('◆ 直道 · 双击路牌出发');
-    buildPreviewAgents(mode, candidates);   // 直道一辆前瞻小车
     renderBranchCards([c]);
     maybeRunReplay();          // v0.9.17：直道模式没有 driveTo，在这里落分叉重走
     return;
@@ -3138,7 +3122,6 @@ function applyForecastResult(msg){
       branchSigns.push(sign);
     });
 
-    buildPreviewAgents(mode, candidates);   // 顺序链每站一辆展望小车
     renderSequentialCards(seqSteps);   // 内部会自动逐站 driveTo，这里不再重复调用
     return;
   }
@@ -3215,7 +3198,6 @@ function applyForecastResult(msg){
     });
   }
 
-  buildPreviewAgents(mode, candidates);   // 多智能体预览：每条岔路一辆半透明小车
   setBranchLabel(`◆ 前方的岔路 · ${roadHint} · 双击 3D 路牌直接出发`);
 
   const target = [cur[0]+3, cur[1], cur[2]+3];
@@ -3273,7 +3255,6 @@ function clearLayerRings(){
 
 /* ── 清除分支 ── */
 function clearBranches(){
-  clearPreviewAgents();     // 预览车队随岔路一并消散
   clearLayerRings();
   clearFutureSigns();
   clearScenery();          // 新任务/回退：上一轮上下文的概念图卡一并清空，避免不同任务的风景混在一起
@@ -3306,114 +3287,11 @@ function clearBranches(){
   }
 }
 
-/* ── 多智能体预览：岔路每条路上的「代跑」小车（v0.9.7 回归 §0.2） ──
-   v0.9.7 把 §0.2 的多载具并行预览带回来：每条待选岔路对应一辆半透明小车，
-   从岔口匀速开向终点再折返——用户「看着所有路上的车跑，再决定走哪条」。
-   车辆挂在 roadGroup 但不进 branchNodeMeshes/branchSigns 射线集合，不参与点击；
-   清理随 clearBranches（岔路作废时预览一并消散）。 */
-function clearPreviewAgents(){
-  for (const p of previewAgents){
-    roadGroup.remove(p.group);
-    p.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-  }
-  previewAgents = [];
-  updateAgentPanel(false);
-}
-
-function buildPreviewAgents(mode, candidates, positions){
-  clearPreviewAgents();
-  if (!roadGroup) return;
-  const pos = positions || _branchPositions;
-  const cur = journey.length ? journey[journey.length-1].pos : [0,0,0];
-  const segs = [];
-  if (mode === 'direct'){
-    if (pos[0]) segs.push([cur, pos[0]]);
-  } else if (mode === 'sequential'){
-    for (let i = 0; i < pos.length; i++){
-      const from = i === 0 ? cur : pos[i-1];
-      if (from) segs.push([from, pos[i]]);
-    }
-  } else {
-    for (let i = 0; i < pos.length; i++) segs.push([cur, pos[i]]);
-  }
-  for (let i = 0; i < segs.length; i++){
-    const f = segs[i][0], to = segs[i][1];
-    if (!to) continue;
-    const color = (candidates[i] && candidates[i].color) || '#9ff0ff';
-    const g = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.13, 1),
-      new THREE.MeshStandardMaterial({color:0x0a1326, emissive:new THREE.Color(color),
-        emissiveIntensity:0.7, roughness:0.45}));
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 10),
-      new THREE.MeshBasicMaterial({color:new THREE.Color(color), transparent:true, opacity:0.12,
-        blending:THREE.AdditiveBlending, depthWrite:false}));
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.009, 6, 24),
-      new THREE.MeshBasicMaterial({color:new THREE.Color(color), transparent:true, opacity:0.35,
-        blending:THREE.AdditiveBlending, depthWrite:false}));
-    g.add(core, glow, ring);
-    g.userData.isPreview = true;
-    roadGroup.add(g);
-    previewAgents.push({
-      idx: i, color, label: (candidates[i] && candidates[i].label) || (mode + ' ' + (i+1)),
-      group: g, core, glow, ring, from: f, to: to,
-      t: -i * 0.12,                         // 错峰起跑，避免车队同相位齐步
-      dur: 7.5 + i * 1.1,                   // 每条路行驶节奏略不同，节奏感更自然
-      pct: 0,
-    });
-  }
-  updateAgentPanel(true);
-}
-
-/* 预览车队动画：匀速往返 + 拱起抬升；与速度控制联动 */
-function updatePreviewAgents(dt, t){
-  if (!previewAgents.length) return;
-  const speed = _speedScale || 1;
-  for (const p of previewAgents){
-    p.t += dt * speed / p.dur;
-    p.t = p.t - Math.floor(p.t);          // 回环：到终点折返再来
-    const k = Math.max(0, Math.min(1, p.t));
-    const lift = (1 - k) * p.from[1] + k * p.to[1] + Math.sin(k * Math.PI) * 0.8;
-    p.group.position.set(
-      p.from[0] + (p.to[0] - p.from[0]) * k,
-      lift + 0.15,
-      p.from[2] + (p.to[2] - p.from[2]) * k);
-    p.group.rotation.y = k * Math.PI * 2;
-    if (p.ring) p.ring.rotation.z += dt * 3;
-    if (p.core){ p.core.rotation.x += dt * 1.5; p.core.rotation.y += dt * 2.2; }
-    if (p.glow) p.glow.material.opacity = 0.1 + 0.08 * Math.sin((t * 3) + p.idx);
-    p.pct = Math.round(k * 100);
-  }
-  _apUiTs += dt;
-  if (_apUiTs >= 0.15){ _apUiTs = 0; updateAgentPanel(false); }   // DOM 6fps 足矣
-}
-
-/* 智能体状态面板：主载具 1 行 + 预览车队每辆 1 行（dot + label + %） */
-function updateAgentPanel(force){
-  const box = document.getElementById('agentPanel');
-  if (!box) return;
-  if (!previewAgents.length && !force){
-    box.classList.remove('show');
-    return;
-  }
-  if (!previewAgents.length) return;
-  box.classList.add('show');
-  document.getElementById('apTitle').textContent = '智能体状态 · 预览车队';
-  const html = '<div class="ap-row main">'
-    + '<span class="ap-dot" style="background:#5ee0ff;box-shadow:0 0 6px #5ee0ff"></span>'
-    + '<span class="ap-name main">主载具</span>'
-    + '<span class="ap-pct">' + journey.length + ' 节点</span></div>'
-    + previewAgents.map(p => {
-      return '<div class="ap-row">'
-        + '<span class="ap-dot" style="background:' + p.color + ';box-shadow:0 0 6px ' + p.color + '"></span>'
-        + '<span class="ap-name" title="' + escHtml(p.label) + '">' + escHtml(p.label) + '</span>'
-        + '<span class="ap-pct">' + p.pct + '%</span></div>';
-    }).join('');
-  document.getElementById('apRows').innerHTML = html;
-}
-
-/* ── 预览车队声明 ── */
-let previewAgents = [];
-let _apUiTs = 0;
+/* ── 预览车队已移除（P1 诚实性，v0.9.28）──
+   旧版在每条岔路上放「代跑」半透明小车 + 左上角「智能体状态·预览车队」百分比面板，
+   进度 pct 随 p.t 回环从 0→100 再折返，纯装饰剧场、不对应任何真实工作，且到 100%
+   不展示结果就重来。按 P1「不伪造进展」整体删除：DOM(#agentPanel)/CSS/构建与动画函数/
+   每帧更新/清理调用一并移除。真实的进展凭据由常驻 HUD（第 N 步·结论+来源+耗时）承担。 */
 
 /* ── 回退推演 ── */
 function fallbackForecast(context){
@@ -5408,7 +5286,6 @@ function buildExploreContext(doneLabel, doneSteps){
 
 function autoExploreNext(arrivalPos, doneLabel, doneSteps){
   clearFutureSigns();
-  clearPreviewAgents();   // 到达点换现场：旧岔路的预览车队消散，新踏上的岔路重新组建
   _futureCandidates = [];
   const travelled = doneLabel ? [doneLabel] : [];
   const ctx = buildExploreContext(doneLabel, doneSteps);
@@ -5863,6 +5740,78 @@ window.undoStep = undoStep;
 window.travelFuture = travelFuture;
 window.explainFuture = explainFuture;
 
+/* ── 轨道相机（v0.9.28）：把机位当作「在已铺轨道上运行的小车」──
+   旧版机位 = currentPos − forward(camAnchorYaw) × cam.dist 是一条直线射线：
+   轨道本身是「journey 节点连成的折线」，于是拐弯处机位切出弯道外侧、
+   末段比 cam.dist 短时机位越过上一个节点飘到空处——这就是用户看到的「脱轨」。
+   现在改为：机位沿「已走过的轨道折线」从车头向回量 cam.dist 弧长取点，真正贴轨。
+   尚无轨道（journey<2 / setupTestArrival 等钩子）时回退到原直线公式，
+   保证「机位只由路决定、不受视线拖拽影响、眼位 1.35m」等不变量不变。 */
+function _railPoints(){
+  const pts = [];
+  for (const j of journey){
+    if (j && j.pos) pts.push(new THREE.Vector3(j.pos[0], j.pos[1], j.pos[2]));
+  }
+  const head = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
+  if (!pts.length || pts[pts.length-1].distanceTo(head) > 1e-4) pts.push(head);
+  // 去掉相邻重复点（driveTo 起点常与上一节点重合）
+  const out = [];
+  for (const p of pts){
+    if (!out.length || out[out.length-1].distanceTo(p) > 1e-4) out.push(p);
+  }
+  return out;
+}
+// 从车头沿轨道折线回退 `back` 米处的点 + 该点轨道切线朝向（前进方向）。
+function _railBack(back){
+  const pts = _railPoints();
+  if (pts.length < 2){
+    // 无真实轨道：回退原直线公式（测试钩子 / 首节点前）
+    return {
+      pos: new THREE.Vector3(
+        currentPos.x - Math.cos(camAnchorYaw) * back,
+        currentPos.y,
+        currentPos.z - Math.sin(camAnchorYaw) * back),
+      tangentYaw: camAnchorYaw, onRail: false, clamped: false,
+    };
+  }
+  let remain = Math.max(0, back);
+  for (let i = pts.length - 1; i > 0; i--){
+    const a = pts[i], b = pts[i-1];            // 前进方向 b → a
+    const len = a.distanceTo(b);
+    if (len < 1e-6) continue;
+    if (remain <= len + 1e-9){
+      const pos = a.clone().lerp(b, remain / len);
+      const tangentYaw = Math.atan2(a.z - b.z, a.x - b.x);
+      return { pos, tangentYaw, onRail: true, clamped: false };
+    }
+    remain -= len;
+  }
+  // 回退距离超过已铺轨道总长：夹到轨道起点（绝不越到空处）
+  const p0 = pts[0], p1 = pts[1];
+  return {
+    pos: p0.clone(),
+    tangentYaw: Math.atan2(p1.z - p0.z, p1.x - p0.x),
+    onRail: true, clamped: true,
+  };
+}
+// 相机到轨道折线的最短（水平）距离 —— 新的「脱轨量」判据，贴轨时恒≈0
+function _distToRailXZ(p){
+  const pts = _railPoints();
+  if (pts.length < 2) return 0;
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i+1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len2 = dx*dx + dz*dz;
+    let t = len2 > 1e-12 ? ((p.x - a.x)*dx + (p.z - a.z)*dz) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = a.x + dx*t, cz = a.z + dz*t;
+    const d = Math.hypot(p.x - cx, p.z - cz);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 /* ── 动画循环 ── */
 const clock = new THREE.Clock();
 function animate(){
@@ -5895,11 +5844,10 @@ function animate(){
   // 侧移到路面之外；层数越多、拐弯越多越失控。现在「机位」与「视线」彻底解耦。
   const eyeY = currentPos.y + CY_EYE;
   const lookAhead = isDriving ? 10 : 6.5;
-  camera.position.set(
-    currentPos.x - Math.cos(camAnchorYaw) * cam.dist,
-    eyeY,
-    currentPos.z - Math.sin(camAnchorYaw) * cam.dist,
-  );
+  // v0.9.28 真·轨道相机：机位沿已走过的轨道折线回退 cam.dist 取点（拐弯贴轨、短段不越界）。
+  // 高度仍钉在司机眼位（用车头所在高度，轨道各点等高），视线方向仍由 cam.yaw 自由控制。
+  const _railCam = _railBack(cam.dist);
+  camera.position.set(_railCam.pos.x, eyeY, _railCam.pos.z);
   // 视线：从固定机位沿自由视角前探（转头，不挪位）；pitch 只抬注视点，相机高度不动。
   _camFollowH.set(Math.cos(cam.yaw), 0, Math.sin(cam.yaw));
   _camFollow.copy(camera.position)
@@ -6111,7 +6059,6 @@ function animate(){
   });
 
   updateTaskWidgetPositions();   // 3D 锚点 → 屏幕坐标，每帧跟随相机
-  updatePreviewAgents(dt, t);     // 预览车队动画（岔路每条路上的小车）
 
   // 「现在」分界环呼吸 + 思考环脉动
   if (nowMarker){
@@ -6196,7 +6143,6 @@ init();
     get hasArrival() { return _arrivalResults.has(-2); },
     get mode() { return _currentMode; },
     get seqDebug() { return _seqDebugLog.slice(); },
-    get previewAgents() { return previewAgents; },
     get stereoOn() { return stereoOn; },
     get stereoOffsets() { return { l: stereoCamL.position.distanceTo(camera.position), r: stereoCamR.position.distanceTo(camera.position) }; },
     get immersive() { return document.body.classList.contains('immersive'); },
@@ -6241,11 +6187,35 @@ init();
     },
     get camAnchorYaw() { return camAnchorYaw; },
     get camAnchorYawT() { return camAnchorYawT; },
-    // 机位偏离路面中心线的横向距离：由 (相机位置 - currentPos) 在「路面右向」上的投影得出，理想恒为 0
+    // 脱轨量 = 机位到「已铺轨道折线」的最短水平距离（v0.9.28 真·轨道相机）。
+    // 旧版按 camAnchorYaw 直线射线投影算，拐弯处机位切出弯道却测不出来；
+    // 现在直接量到折线的距离，贴轨恒≈0，是真正能抓到脱轨的判据。
     get camOffRail() {
-      const rx = -Math.sin(camAnchorYaw), rz = Math.cos(camAnchorYaw);
-      const dx = camera.position.x - currentPos.x, dz = camera.position.z - currentPos.z;
-      return Math.abs(dx * rx + dz * rz);
+      return _distToRailXZ(camera.position);
+    },
+    get railOnRail() { return _railBack(cam.dist).onRail; },
+    get railCamClamped() { return _railBack(cam.dist).clamped; },
+    get railTangentYaw() { return _railBack(cam.dist).tangentYaw; },
+    get railPointCount() { return _railPoints().length; },
+    // 诊断：轨道相机几何（回归脚本据此验证拐弯贴轨 / 短段不越界 / 眼位钉死）
+    railCameraProbe() {
+      const rb = _railBack(cam.dist);
+      const pts = _railPoints();
+      let railLen = 0;
+      for (let i = 1; i < pts.length; i++) railLen += pts[i].distanceTo(pts[i-1]);
+      let arcBack = 0, acc = 0;
+      for (let i = pts.length - 1; i > 0; i--){
+        const seg = pts[i].distanceTo(pts[i-1]);
+        if (acc + seg >= cam.dist){ arcBack = cam.dist; break; }
+        acc += seg;
+      }
+      arcBack = rb.clamped ? railLen : Math.min(cam.dist, railLen);
+      return {
+        onRail: rb.onRail, clamped: rb.clamped, railLen, railPoints: pts.length,
+        back: cam.dist, arcBack, camPos: camera.position.toArray(),
+        railCamXZ: [rb.pos.x, rb.pos.z], headXZ: [currentPos.x, currentPos.z],
+        offRail: _distToRailXZ(camera.position), eyeY: camera.position.y - currentPos.y,
+      };
     },
     get camPos() { return camera.position.toArray(); },
     get camPan() { return cam.panT.toArray(); },

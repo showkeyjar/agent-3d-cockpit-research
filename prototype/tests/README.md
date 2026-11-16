@@ -20,6 +20,7 @@
 | `test_cancel.js` | 中断态（第三态）全链路 | 不回退 |
 | `test_timeline.js` | 多轮时间线 + 分叉重走 + 导出 | 只读 |
 | `test_sign_topics.js` | 路牌业务词绑定（fast 通道） | P1 |
+| `test_rail_camera.js` | v0.9.28 真·轨道相机（拐弯贴轨 / 短段不越界 / 拖拽机位零位移） | `camOffRail≈0` / 眼位 1.35 |
 | `forecaster/tests/test_topic_binding.py` | 业务短语抽取 / 诚实分支 | P1 |
 | `forecaster/test_e2e_diversify.py` | 采样池→分桶→5 候选语义分散 | — |
 | `backend/test_cancel_backend.py` | 取消协议后端契约 | — |
