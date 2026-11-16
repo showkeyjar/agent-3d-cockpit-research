@@ -41,6 +41,8 @@ from core import (
     compute_divergence,
     road_type_from_divergence,
     cluster_candidates,
+    DIVERSIFY_EPS_HASH,
+    DIVERSIFY_EPS_SEMANTIC,
 )
 from llm_forecaster import LLMCandidateSampler
 from projection import project_to_3d, multimodal_projection
@@ -103,7 +105,13 @@ def _build_forecaster(force_local: bool) -> SpeculativeForecaster:
         embedding_model=LLM_EMBEDDING_MODEL or None,
     )
     sampler.force_local = force_local
-    return SpeculativeForecaster(sampler=sampler, k=5)
+    # embedding 决策落地：默认 hashed-TF（eps 0.60，诚实近似）；配置
+    # LLM_EMBEDDING_MODEL 且不同于生成模型时自动切真实 embedding 语义档（eps 0.38）。
+    _div_eps = (
+        DIVERSIFY_EPS_SEMANTIC if sampler.uses_semantic_embedding()
+        else DIVERSIFY_EPS_HASH
+    )
+    return SpeculativeForecaster(sampler=sampler, k=5, diversify_eps=_div_eps)
 
 
 def get_forecaster(fast: bool = False) -> SpeculativeForecaster:
@@ -151,7 +159,15 @@ async def health():
         return {"llm_service": "unknown", "llm_busy": None, "llm_prompt_tokens": 0}
 
     info = await asyncio.to_thread(probe)
+    # 向量编码来源如实上报：semantic（真实 embedding，语义档 eps 0.38）/
+    # hash（hashed-TF 词面近似，eps 0.60）。供前端/评审核对，不粉饰。
+    _embed_provider = (
+        "semantic" if (LLM_EMBEDDING_MODEL and LLM_EMBEDDING_MODEL != LLM_MODEL)
+        else "hash"
+    )
     return {"status": "ok", "llm_url": LLM_BASE_URL, "model": LLM_MODEL,
+            "embed_provider": _embed_provider,
+            "embedding_model": LLM_EMBEDDING_MODEL or None,
             "exec_use_llm": EXEC_USE_LLM, **info}
 
 

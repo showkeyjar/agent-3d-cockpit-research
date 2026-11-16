@@ -218,8 +218,8 @@ Qwen2.5-VL-3B 是**理解模型**（看图说话），它只能描述已有图�
 - **音频/视频生成**：本机无轻量方案，**诚实降级**——音频暂不支持，视频仅支持图像序列。
 
 **✅ 生成模型已部署并实测通过（2026-11-11）**：
-- **引擎**：stable-diffusion.cpp（`leejet/stable-diffusion.cpp` master-465adf3），Windows Vulkan 版，安装于 `D:\tools\sd-cpp`
-- **模型**：SDXL-Turbo `sd_xl_turbo_1.0.q8_0.gguf`（3.81GB，Q8_0 量化），置于 `D:\tools\sd-cpp\models\`
+- **引擎**：stable-diffusion.cpp（`leejet/stable-diffusion.cpp` master-465adf3），Windows Vulkan 版，安装于本机工具目录（示例：`<tools>/sd-cpp`）
+- **模型**：SDXL-Turbo `sd_xl_turbo_1.0.q8_0.gguf`（3.81GB，Q8_0 量化），置于该引擎目录下 `models/`
 - **服务**：sd-server 端口 **1234**，Vulkan 后端，auto-fit 将全部组件（DiT 2925MB + Conditioner 835MB + VAE 160MB ≈ 3.9GB）装入 Vulkan0 显存
 - **API**：`POST /v1/images/generations`（OpenAI 兼容格式），参数：`prompt`/`negative_prompt`/`width`/`height`/`steps`/`cfg_scale`/`sampler_name`/`seed`；Turbo 模型 `cfg_scale=1.0`、`steps=5`
 - **实测**：1024×1024 出图 ~15秒，返回 3.1MB PNG，HTTP 200
@@ -233,7 +233,7 @@ Qwen2.5-VL-3B 是**理解模型**（看图说话），它只能描述已有图�
 | 已有模态分层纬线 | `MOD_LAYER` (index.html:864)、`drawLayerRings()` (index.html:1886) | text/vision/audio/multimodal 分层**已存在**，但只是抽象的淡环 + 立牌，**没有真实多模态内容** |
 | 前瞻器有 modality 字段 | `modality` (core.py:79)、`_infer_modality()` (llm_forecaster.py:101) | 能推断模态，但只是标签，没有真实内容 |
 | 无多模态物件渲染 | 无 | 没有图片/音频/视频的真实物件 |
-| **✅ 多模态内容来源已落地（2026-11-11）** | 本机 `D:\tools\llama.cpp`，`Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf` + `mmproj-qwen2.5-vl-3b-f16.gguf`，llama-server 端口 **8083** | 真实 VLM 已部署并实测通过（能描述截图内容）；**vision 层真实内容来源已就绪**。注意：3B 模型适合**描述/OCR/简单理解**，不适合复杂视觉推理——F2.x 的内容生成要按这个能力边界设计 |
+| **✅ 多模态内容来源已落地（2026-11-11）** | 本机 llama.cpp 目录 `<tools>/llama.cpp`，`Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf` + `mmproj-qwen2.5-vl-3b-f16.gguf`，llama-server 端口 **8083** | 真实 VLM 已部署并实测通过（能描述截图内容）；**vision 层真实内容来源已就绪**。注意：3B 模型适合**描述/OCR/简单理解**，不适合复杂视觉推理——F2.x 的内容生成要按这个能力边界设计 |
 
 ### 3.3 功能拆分（全部带门控）
 
@@ -366,8 +366,8 @@ RESEARCH-PLAN §3 的实验要测 H2.1：执行层真实推进的前提下，补
 |----|----|
 | 模型 | Qwen2.5-VL-3B-Instruct（GGUF Q4_K_M，1.93GB） |
 | 视觉编码器 | mmproj-qwen2.5-vl-3b-f16.gguf（1.34GB，FP16） |
-| 位置 | `D:\tools\llama.cpp\models\` |
-| 服务 | llama-server（`D:\tools\llama.cpp\llama-server.exe`），端口 **8083**，`--device Vulkan0`，ctx 4096 |
+| 位置 | `<llama.cpp>/models/` |
+| 服务 | llama-server（`<llama.cpp>/llama-server.exe`），端口 **8083**，`--device Vulkan0`，ctx 4096 |
 | 与 35B 文本模型共存 | 35B 在 8082（PID 5620），VL 在 8083，两者常驻显存共存正常 |
 | 实测 | 对真实截图（shot_immersive.png）能准确描述"游戏界面/任务选项/路径线条"；占位图会幻觉（3B 边界，正常） |
 | 能力边界 | 描述/OCR/简单问答够用；复杂视觉推理不可靠——使用时须标注"本机 VLM 生成，可能不准" |

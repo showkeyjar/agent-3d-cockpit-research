@@ -18,8 +18,8 @@
 ```bash
 pip install -r requirements.txt      # 后端 + 推理器（FastAPI/uvicorn/aiohttp/numpy/pydantic/websockets/pytest）
 
-# 前端回归测试（test_*.js）需要 Node + playwright-core：
-npm i playwright-core                # 然后由 chrome_helper.js 自动定位本机 Chromium
+# 前端回归测试（test_*.js）需要 Node + playwright-core（见 package.json）：
+npm install                          # 装 playwright-core，chrome_helper.js 自动定位本机 Chromium
 # 异机/CI 可用环境变量指定浏览器：
 #   PLAYWRIGHT_CHROMIUM=/path/to/chrome.exe node test_practical.js
 ```
@@ -30,10 +30,24 @@ npm i playwright-core                # 然后由 chrome_helper.js 自动定位�
 |------|------|------|
 | `LLM_BASE_URL` | `http://localhost:8082/v1` | 本地 llama-server（35B）OpenAI 兼容端点 |
 | `LLM_MODEL` | `qwen3.6-35b` | 与 `start-server-35b.bat` 的 `-a` 别名一致 |
+| `LLM_EMBEDDING_MODEL` | 空（用哈希） | 配置后走真实 embedding API（语义档 eps 0.38）；留空用 hashed-TF（eps 0.60，诚实近似）。须与 `LLM_MODEL` 不同才生效 |
 | `PORT` | `8770` | 后端监听端口 |
 | `COCKPIT_PYTHON` | 当前解释器 | 看门狗用来拉起 uvicorn 的 python 路径 |
 | `COCKPIT_CORS_ORIGINS` | `localhost/127.0.0.1 :8770,:8899` | CORS 白名单（逗号分隔，**不要用 `*`**） |
 | `PLAYWRIGHT_CHROMIUM` | 自动探测 | 测试用 Chromium 路径覆盖 |
+
+## Embedding 决策（学科1 向量风景，已落地为可插拔）
+
+向量风景的分桶判据 `eps` 依赖向量是「语义」还是「词面」，该决策已从「待定注释」变为**环境变量可切换**：
+
+- **默认（诚实近似）**：不配 `LLM_EMBEDDING_MODEL` → 本地 hashed-TF（单字 + 二元组 + 英文词哈希）编码，
+  分桶 `eps = 0.60`（实测词面同义簇 0.52–0.57、方向间最小 0.68，0.60 落在间隙）。此时「语义相近→靠近」
+  本质是**词面相近**，代码与凭据如实标注，不冒充语义向量。
+- **语义档**：配 `LLM_EMBEDDING_MODEL`（且不同于 `LLM_MODEL`）→ 调真实 embedding API，分桶 `eps` 自动切 **0.38**。
+
+实现：`forecaster/core.py` 定义 `DIVERSIFY_EPS_HASH=0.60 / DIVERSIFY_EPS_SEMANTIC=0.38`；`LLMForecaster`
+与 `server._build_forecaster` 均按 `sampler.uses_semantic_embedding()` 自动选档；`/api/health` 的
+`embed_provider`（`semantic`/`hash`）与 `embedding_model` 字段如实上报当前档位。切换只改环境变量，不动代码。
 
 ## 运行
 

@@ -156,6 +156,17 @@ def compute_divergence(vecs: List[np.ndarray]) -> float:
     return mean_norm * 0.6 + max_norm * 0.4
 
 
+# ──────────────────────────────────────────────
+# 候选多样化分桶判据 eps —— 依赖 embedding 类型
+# ──────────────────────────────────────────────
+# hashed-TF（词面近似）：eps 0.60 为工程校准值，物理边界是「词面重合」而非语义
+#   （族内同义模板 0.52-0.57，方向间最小 0.68，0.60 落在间隙）。
+# 真实 embedding（语义）：0.35-0.4 语义档，取中值 0.38。
+# 由 LLMForecaster 依据 embedding 配置自动选取，见 uses_semantic_embedding()。
+DIVERSIFY_EPS_HASH = 0.60
+DIVERSIFY_EPS_SEMANTIC = 0.38
+
+
 def cluster_candidates(vecs: List[np.ndarray], eps: float = 0.35) -> List[List[int]]:
     """
     简单聚类：基于余弦距离的贪心聚类。
@@ -293,6 +304,7 @@ class SpeculativeForecaster:
         thresholds: Optional[dict] = None,
         cluster_eps: float = 0.35,
         diversify: bool = True,
+        diversify_eps: float = DIVERSIFY_EPS_HASH,
     ):
         self.sampler = sampler
         self.k = k
@@ -300,6 +312,9 @@ class SpeculativeForecaster:
         self.cluster_eps = cluster_eps
         # 候选多样化开关：同义簇折叠 + 最远回填，只对 choice 生效
         self.diversify = diversify
+        # 多样化分桶判据：默认 hashed-TF 档 0.60；真实 embedding 时由
+        # LLMForecaster 传入 DIVERSIFY_EPS_SEMANTIC(0.38)。
+        self.diversify_eps = diversify_eps
 
     def forecast(self, context: str, k: int | None = None) -> ForecastResult:
         import time
@@ -323,14 +338,15 @@ class SpeculativeForecaster:
         _qtype = getattr(self.sampler, 'last_question_type', 'choice')
         if _qtype == 'choice' and self.diversify:
             before = len(candidates)
-            # 分桶判据 0.60（工程校准，展示聚类保持 0.35）：
-            # hashed-TF 是词面向量。实测「检索资料 vs 查资料 vs 搜索相关
-            # 资料」这种「换动词保留名词」的同义模板族内余弦距离
-            # 0.52-0.57，而方向间（对比评估 vs 写代码 vs 生成报告等）
-            # 最小 0.68——0.60 落在间隙中（覆盖族内最大 0.571，距方向间最小 0.68 留 0.08）。
-            # ⚠ 接入真实 embedding（_embed_api）后应回调到 0.35-0.4
-            # 语义档——hashed-TF 的物理边界就是词面重合，不是语义。
-            candidates = diversify_candidates(candidates, kk, eps=0.60)
+            # 分桶判据随 embedding 类型自动切换（见 self.diversify_eps）：
+            # - hashed-TF（词面近似，默认）：0.60。实测「检索资料 vs 查资料 vs
+            #   搜索相关资料」这类「换动词保留名词」的同义模板族内余弦距离
+            #   0.52-0.57，方向间（对比评估 vs 写代码 vs 生成报告等）最小 0.68，
+            #   0.60 落在间隙中（覆盖族内最大 0.571，距方向间最小 0.68 留 0.08）。
+            # - 真实 embedding（语义）：0.38（0.35-0.4 语义档中值），由
+            #   LLMForecaster 检测到 embedding_model 时自动传入。
+            # hashed-TF 的物理边界是词面重合而非语义，故不能复用语义档 eps。
+            candidates = diversify_candidates(candidates, kk, eps=self.diversify_eps)
             self.last_diversify = (before, len(candidates))
 
         # 2. 计算分歧度

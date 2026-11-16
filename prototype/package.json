@@ -1,0 +1,22 @@
+{
+  "name": "agent-3d-cockpit-prototype",
+  "version": "0.9.25",
+  "private": true,
+  "description": "Agent 3D Cockpit 研究原型 —— 前端 + 回归测试（playwright-core）。后端依赖见 requirements.txt。",
+  "scripts": {
+    "test:opaque": "node verify_opaque.js",
+    "test:honesty": "node test_honesty.js",
+    "regression": "bash run_regression.sh",
+    "test": "bash run_regression.sh"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "notes": {
+    "browser": "Chromium 路径由 chrome_helper.js 解析：优先 PLAYWRIGHT_CHROMIUM 环境变量，否则自动探测 $LOCALAPPDATA/ms-playwright/chromium-<ver>，无需固定本机绝对路径。",
+    "python": "后端与 Python 测试依赖见 requirements.txt；解释器可用 COCKPIT_PYTHON 覆盖。"
+  }
+}

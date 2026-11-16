@@ -27,6 +27,8 @@ from core import (
     road_type_from_divergence,
     cluster_candidates,
     sanitize_sign_text,
+    DIVERSIFY_EPS_HASH,
+    DIVERSIFY_EPS_SEMANTIC,
 )
 
 
@@ -66,6 +68,15 @@ class LLMCandidateSampler:
         self.last_question_type = "choice"  # 最近一次判断的问题类型
         self.force_local = False           # fast 通道：跳过 LLM，直接本地推演
         self.last_source = "local"         # 本次采样来源：llm | local
+
+    def uses_semantic_embedding(self) -> bool:
+        """候选向量是否来自真实 embedding API（语义）而非 hashed-TF（词面近似）。
+
+        与 _embed() 的选路条件保持一致：配置了 embedding_model 且不同于生成
+        模型时才走 _embed_api，否则回落 _hash_embed。eps 判据据此在 0.60 / 0.38
+        间切换，避免把语义档阈值套到词面向量上。
+        """
+        return bool(self.embedding_model and self.embedding_model != self.model)
 
     def sample(self, context: str, k: int = 3) -> List[Candidate]:
         # 1. 调用 LLM 生成候选走向文本
@@ -557,8 +568,15 @@ class LLMForecaster:
             embedding_model=embedding_model,
             embedding_base_url=embedding_base_url,
         )
+        # embedding 决策落地：默认 hashed-TF（eps 0.60，诚实近似）；
+        # 配置了真实 embedding API 即自动切语义档（eps 0.38）。
+        _div_eps = (
+            DIVERSIFY_EPS_SEMANTIC if self.sampler.uses_semantic_embedding()
+            else DIVERSIFY_EPS_HASH
+        )
         self.forecaster = SpeculativeForecaster(
             sampler=self.sampler, k=k, thresholds=thresholds,
+            diversify_eps=_div_eps,
         )
 
     def forecast(self, context: str) -> ForecastResult:

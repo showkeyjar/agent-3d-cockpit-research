@@ -7,6 +7,20 @@
 
 ---
 
+## v0.9.26 · 2026-11-16 · Embedding 决策落地 + 工程可复现性收口
+- **Embedding 决策从「待定注释」变「可插拔」**（回应评审优化#4）：`forecaster/core.py` 定义
+  `DIVERSIFY_EPS_HASH=0.60`（hashed-TF 词面近似）/ `DIVERSIFY_EPS_SEMANTIC=0.38`（真实 embedding 语义档）；
+  `LLMForecaster` 与 `server._build_forecaster` 均按 `uses_semantic_embedding()` 自动选档；
+  `/api/health` 如实上报 `embed_provider`（`semantic`/`hash`）与 `embedding_model`。
+  默认诚实近似（eps 0.60），配 `LLM_EMBEDDING_MODEL` 即切语义档（eps 0.38），只改环境变量不动代码。
+  默认档行为零变化（`test_diversify` / `test_e2e_diversify` ALL PASS）。
+- **补 `package.json`**（评审必修#1 收口）：声明 `playwright-core` devDep + npm scripts
+  （`test` / `test:opaque` / `test:honesty` / `regression`），补齐 Python 之外的 JS 依赖清单。
+- **工程可复现性**：统一端口 8770、CORS 白名单、`/api/journeys` 字段校验、WS 透传 k/fast、
+  净化规则单一来源、SQLite WAL、`verify_opaque.js`(22)/`test_honesty.js`(5) 常驻回归、
+  `chrome_helper.js` 去硬编码浏览器路径、`start-watchdog.bat`/`DESIGN.md`/测试注释去绝对路径（便携）。
+- **不变量零回退**：不新增完成信号、不碰相机/路牌/中断态、`?mode=opaque` 一致性保持。
+
 ## v0.9.25 · 2026-11-14 · 风景→上下文闭环（回应 GPT 评审）
 - **产品缺口**（GPT 评审点名）：原型已能记录一轮轮探索，但「这轮的发现如何改变下一轮」偏薄——v0.9.20 风景可点后只能回看来源、不能把发现带进下一步。
 - **风景可纳入**：`#scnPanel` 加「＋ 纳入本轮上下文」按钮 → `addContextTag(text, src)`（去重幂等），顶部「本轮纳入」标签条 `#contextTags` 可核对、可 × 移除。
