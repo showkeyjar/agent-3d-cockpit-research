@@ -10,6 +10,7 @@ __pycache__/
 *.log
 *.db
 server.config.json
+llm-config.json
 
 # ── 调试残留（原型目录，已清洁剔除，以下防止误加）──
 _*.js

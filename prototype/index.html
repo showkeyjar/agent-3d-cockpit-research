@@ -539,6 +539,44 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     padding:3px 9px;border-radius:12px;cursor:pointer;font-family:inherit;white-space:nowrap;}
   #headbar #timelineBtn:hover,#headbar #timelineBtn.on{color:var(--cyan);border-color:var(--cyan);}
   #tlCount{color:var(--cyan);margin-left:3px;}
+  /* ── 模型设置面板（独立产品：界面里配置大模型，无需改环境变量/重启）── */
+  #headbar #modelBtn{pointer-events:auto;border:1px solid var(--border);
+    background:rgba(255,255,255,.05);color:var(--muted);font-size:10px;
+    padding:3px 9px;border-radius:12px;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  #headbar #modelBtn:hover,#headbar #modelBtn.on{color:var(--cyan);border-color:var(--cyan);}
+  #modelPanel{position:fixed;right:16px;top:56px;width:340px;max-width:92vw;z-index:24;
+    display:none;flex-direction:column;pointer-events:auto;border-radius:12px;
+    border:1px solid var(--border);background:rgba(8,12,28,.94);
+    backdrop-filter:blur(20px);box-shadow:0 10px 40px rgba(0,0,0,.6);overflow:hidden;}
+  #modelPanel.show{display:flex;}
+  .mp-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);}
+  .mp-head b{font-size:12px;}
+  .mp-head .mp-sub{font-size:10px;color:var(--muted);flex:1;}
+  .mp-head button{border:none;background:rgba(255,255,255,.06);color:var(--muted);
+    width:20px;height:20px;border-radius:5px;cursor:pointer;font-size:13px;line-height:1;}
+  #mpBody{padding:12px;overflow-y:auto;}
+  .mp-field{margin-bottom:11px;}
+  .mp-field label{display:block;font-size:10px;color:var(--muted);margin-bottom:4px;}
+  .mp-field label .src{float:right;font-size:9px;color:var(--cyan);opacity:.8;}
+  .mp-field input[type=text],.mp-field input[type=password]{width:100%;box-sizing:border-box;
+    background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:6px;
+    color:var(--text);font-size:11px;font-family:var(--mono,monospace);padding:6px 8px;outline:none;}
+  .mp-field input:focus{border-color:var(--cyan);}
+  .mp-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin-bottom:11px;}
+  .mp-row input[type=checkbox]{accent-color:var(--cyan);}
+  #mpResult{font-size:10px;line-height:1.6;padding:8px;border-radius:6px;margin-bottom:10px;
+    background:rgba(255,255,255,.04);color:var(--muted);max-height:96px;overflow-y:auto;
+    white-space:pre-wrap;word-break:break-all;display:none;}
+  #mpResult.show{display:block;}
+  #mpResult.ok{border-left:2px solid var(--green,#34f5a0);}
+  #mpResult.err{border-left:2px solid #ff6b6b;}
+  #mpActions{display:flex;gap:6px;flex-wrap:wrap;}
+  #mpActions button{flex:1;min-width:88px;padding:7px 6px;border-radius:6px;cursor:pointer;
+    font-size:11px;font-family:inherit;border:1px solid var(--border);
+    background:rgba(255,255,255,.05);color:var(--muted);}
+  #mpActions button:hover{border-color:var(--cyan);color:var(--cyan);}
+  #mpActions #mpSave{border-color:var(--cyan);background:rgba(94,224,255,.12);color:var(--cyan);}
+  .mp-note{font-size:9px;color:var(--muted);opacity:.7;line-height:1.5;margin-top:10px;}
   #timelinePanel{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);
     width:min(940px,calc(100vw - 32px));max-height:54vh;z-index:26;display:none;
     flex-direction:column;pointer-events:auto;border-radius:12px;
@@ -768,6 +806,30 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   <button id="histBtn" title="查看走过的轨迹">◷ 轨迹 <span id="histCount">0</span></button>
   <button id="timelineBtn" title="本次旅程 2D 时间线：回看 / 对照 / 分叉重走 / 导出（T）">⇥ 时间线 <span id="tlCount">0</span></button>
   <button id="decisionBtn" title="决策溯源链：你问了什么、选了哪条、得出什么（D）">⛓ 决策链 <span id="dcCount">0</span></button>
+  <button id="modelBtn" title="模型设置：配置大模型的地址/别名/密钥，改完立即生效，无需重启">⚙ 模型</button>
+</div>
+
+<!-- 模型设置面板：独立产品能力——界面里配置大模型，热更新无需重启 -->
+<div id="modelPanel">
+  <div class="mp-head"><b>⚙ 模型设置</b><span class="mp-sub">改完点保存，立即生效</span><button id="mpClose" title="关闭">×</button></div>
+  <div id="mpBody">
+    <div class="mp-field"><label>服务地址 base_url <span class="src" id="src-base_url"></span></label>
+      <input type="text" id="mpBaseUrl" placeholder="http://localhost:8083/v1" autocomplete="off"></div>
+    <div class="mp-field"><label>模型别名 model <span class="src" id="src-model"></span></label>
+      <input type="text" id="mpModel" placeholder="local-primary" autocomplete="off"></div>
+    <div class="mp-field"><label>API 密钥 api_key <span class="src" id="src-api_key"></span></label>
+      <input type="password" id="mpApiKey" placeholder="留空表示不改动" autocomplete="new-password"></div>
+    <div class="mp-field"><label>Embedding 模型（留空用哈希回退）<span class="src" id="src-embedding_model"></span></label>
+      <input type="text" id="mpEmbedding" placeholder="留空 = hash" autocomplete="off"></div>
+    <label class="mp-row"><input type="checkbox" id="mpExecLlm"> 执行阶段调用大模型 <span class="src" id="src-exec_use_llm" style="float:none;"></span></label>
+    <div id="mpResult"></div>
+    <div id="mpActions">
+      <button id="mpSave">保存并生效</button>
+      <button id="mpTest">测试连接</button>
+      <button id="mpReset">恢复默认</button>
+    </div>
+    <div class="mp-note">来源标注：file=界面配置（写盘持久）/ env=环境变量 / default=内置默认。密钥永不回传明文；留空保存表示沿用原值。恢复默认会删除配置文件，回到环境变量。</div>
+  </div>
 </div>
 
 <!-- v0.9.23 · 实用化：常驻实质进展 HUD（一眼感知这一步的产出 / 来源 / 进度） -->
@@ -6639,6 +6701,105 @@ init();
     // v0.9.11-DEBUG：复用真实推演重建逻辑（行驶期间/结束后触发新一轮 explore=重建 nowSign 的漏洞探针）
     _applyForecast(m){ applyForecastResult(m); },
   };
+
+  /* ─────────────────────────────────────────────
+     模型设置面板（独立产品能力）
+     调后端 /api/config/llm*，热更新无需重启；来源与脱敏如实展示。
+     ───────────────────────────────────────────── */
+  (function initModelPanel(){
+    const $ = (id) => document.getElementById(id);
+    const panel = $('modelPanel'), btn = $('modelBtn');
+    if (!panel || !btn) return;
+    const API = '/api/config/llm';
+    const result = $('mpResult');
+    const SRC_LABEL = { file:'file', env:'env', default:'default' };
+
+    function showResult(text, ok){
+      result.textContent = text;
+      result.className = 'show ' + (ok ? 'ok' : 'err');
+    }
+    function clearResult(){ result.textContent=''; result.className=''; }
+
+    async function api(path, options){
+      const r = await fetch(API + path, Object.assign({ headers:{'Content-Type':'application/json'} }, options||{}));
+      let data; try { data = await r.json(); } catch(e){ data = { error: 'HTTP '+r.status+' '+(await r.text()).slice(0,120) }; }
+      if (!r.ok && !data.ok && data.error) throw new Error(typeof data.error==='string'?data.error:JSON.stringify(data.error));
+      return data;
+    }
+
+    function fill(cfg){
+      $('mpBaseUrl').value   = cfg.base_url || '';
+      $('mpModel').value     = cfg.model || '';
+      $('mpEmbedding').value = cfg.embedding_model || '';
+      $('mpApiKey').value    = '';  // 永不预填密钥：脱敏值仅作提示
+      $('mpApiKey').placeholder = cfg.api_key_set ? ('已设置（'+(cfg.api_key||'')+'），留空不改') : '留空表示不改动';
+      $('mpExecLlm').checked = !!cfg.exec_use_llm;
+      const src = cfg._source || {};
+      ['base_url','model','api_key','embedding_model','exec_use_llm'].forEach(k=>{
+        const el = $('src-'+k);
+        if (el) el.textContent = SRC_LABEL[src[k]] || (src[k]||'');
+      });
+    }
+
+    async function load(){
+      try { fill(await api('')); clearResult(); }
+      catch(e){ showResult('读取配置失败：'+e.message, false); }
+    }
+
+    btn.addEventListener('click', () => {
+      const open = !panel.classList.contains('show');
+      panel.classList.toggle('show', open);
+      btn.classList.toggle('on', open);
+      if (open) load();
+    });
+    $('mpClose').addEventListener('click', () => {
+      panel.classList.remove('show'); btn.classList.remove('on');
+    });
+
+    $('mpSave').addEventListener('click', async () => {
+      const patch = {
+        base_url: $('mpBaseUrl').value.trim(),
+        model: $('mpModel').value.trim(),
+        embedding_model: $('mpEmbedding').value.trim(),
+        api_key: $('mpApiKey').value,   // 空串=不改
+        exec_use_llm: $('mpExecLlm').checked,
+      };
+      if (!patch.base_url || !patch.model){ showResult('服务地址和模型别名不能为空', false); return; }
+      try {
+        const r = await api('', { method:'POST', body: JSON.stringify(patch) });
+        if (r.ok){ fill(r.config); showResult('已保存并生效。下一次推演/执行即用新配置。', true); }
+        else showResult('保存失败：'+(r.error||'未知错误'), false);
+      } catch(e){ showResult('保存失败：'+e.message, false); }
+    });
+
+    $('mpTest').addEventListener('click', async () => {
+      const patch = {
+        base_url: $('mpBaseUrl').value.trim(),
+        model: $('mpModel').value.trim(),
+        api_key: $('mpApiKey').value,
+      };
+      showResult('正在探测端点…', true);
+      try {
+        const r = await api('/test', { method:'POST', body: JSON.stringify(patch) });
+        let lines = [
+          '端点：'+(r.base_url||''),
+          '结果：'+(r.ok?'可达':'不可达')+(r.http_status?('  HTTP '+r.http_status):''),
+        ];
+        if (r.model_registered === true) lines.push('模型别名已注册 ✓');
+        else if (r.model_registered === false) lines.push('⚠ 模型别名未在服务端注册，检查别名是否一致');
+        if (r.models && r.models.length) lines.push('服务端模型：'+r.models.join(', '));
+        lines.push(r.note||'');
+        showResult(lines.join('\n'), r.ok);
+      } catch(e){ showResult('测试失败：'+e.message, false); }
+    });
+
+    $('mpReset').addEventListener('click', async () => {
+      try {
+        const r = await api('/reset', { method:'POST', body:'{}' });
+        if (r.ok){ fill(r.config); showResult('已恢复默认（删除配置文件，回到环境变量）。', true); }
+      } catch(e){ showResult('恢复失败：'+e.message, false); }
+    });
+  })();
 </script>
 </body>
 </html>

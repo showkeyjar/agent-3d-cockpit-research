@@ -47,6 +47,7 @@ from core import (
 from llm_forecaster import LLMCandidateSampler
 from projection import project_to_3d, multimodal_projection
 from task_tracker import TaskTracker, AgentExecutor
+import llm_config
 
 # ──────────────────────────────────────────────
 # App
@@ -77,18 +78,15 @@ app.add_middleware(
 # LLM 配置（从环境变量读取，有默认值）
 # ──────────────────────────────────────────────
 
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8083/v1")
-# 别名与 llama-server 启动时的 -a 注册名保持一致（2026-11-16 起本机唯一主力
-# 模型注册为 local-primary，8083）。若与 llama-server 注册的 alias 不匹配，
-# forecast 请求会被拒 → 退回本地万金油模板，路牌内容退化成与任务无关的抽象
-# 动作。改别名时两边必须同步。
-LLM_MODEL = os.environ.get("LLM_MODEL", "local-primary")
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "EMPTY")
-LLM_EMBEDDING_MODEL = os.environ.get("LLM_EMBEDDING_MODEL", "")  # 留空则用哈希回退
-# 执行阶段是否真的调 LLM。8083 是本机 llama.cpp 唯一主力模型（别名
-# local-primary，ctx 32768）；空闲时短请求可返回，故默认开启；忙时会自动走本地执行。
-# 设 EXEC_USE_LLM=0 可完全关闭模型调用。
-EXEC_USE_LLM = os.environ.get("EXEC_USE_LLM", "1") == "1"
+# 配置统一由 llm_config 管理：环境变量默认值 + llm-config.json 覆盖 + 界面热更新。
+# 无配置文件时与旧版完全一致（读同样的环境变量）。别名仍须与 llama-server
+# 启动时的 -a 注册名一致，否则 forecast 被拒 → 退回本地模板（路牌退化）。
+# 用函数取值而非模块常量，保证界面改配置后 forecast/execute 下一次即用新值。
+def LLM_BASE_URL() -> str: return llm_config.get("base_url")
+def LLM_MODEL() -> str: return llm_config.get("model")
+def LLM_API_KEY() -> str: return llm_config.get("api_key")
+def LLM_EMBEDDING_MODEL() -> str: return llm_config.get("embedding_model")
+def EXEC_USE_LLM() -> bool: return llm_config.get("exec_use_llm")
 
 # ──────────────────────────────────────────────
 # 全局推理器（懒初始化）
@@ -96,14 +94,18 @@ EXEC_USE_LLM = os.environ.get("EXEC_USE_LLM", "1") == "1"
 
 _forecaster: SpeculativeForecaster | None = None
 _fast_forecaster: SpeculativeForecaster | None = None
+_forecaster_cfg_version: int = -1   # 推理器是按当前 LLM 配置构建的；配置变更即失效
+
+# LLM 配置块结束（字段定义见上方函数）—— 保持模块级符号 LLM_BASE_URL 等为函数，
+# 界面热更新后下一次 get_forecaster/execute 自动读取新值。
 
 
 def _build_forecaster(force_local: bool) -> SpeculativeForecaster:
     sampler = LLMCandidateSampler(
-        base_url=LLM_BASE_URL,
-        model=LLM_MODEL,
-        api_key=LLM_API_KEY,
-        embedding_model=LLM_EMBEDDING_MODEL or None,
+        base_url=LLM_BASE_URL(),
+        model=LLM_MODEL(),
+        api_key=LLM_API_KEY(),
+        embedding_model=LLM_EMBEDDING_MODEL() or None,
     )
     sampler.force_local = force_local
     # embedding 决策落地：默认 hashed-TF（eps 0.60，诚实近似）；配置
@@ -116,8 +118,16 @@ def _build_forecaster(force_local: bool) -> SpeculativeForecaster:
 
 
 def get_forecaster(fast: bool = False) -> SpeculativeForecaster:
-    """fast=True 使用独立的纯本地实例，与正在跑 LLM 的实例互不干扰"""
-    global _forecaster, _fast_forecaster
+    """fast=True 使用独立的纯本地实例，与正在跑 LLM 的实例互不干扰。
+
+    配置热更新后版本号变化 → 重建实例，下一次推演/执行即用新模型参数。
+    """
+    global _forecaster, _fast_forecaster, _forecaster_cfg_version
+    cur_ver = llm_config.version()
+    if cur_ver != _forecaster_cfg_version:
+        _forecaster = None
+        _fast_forecaster = None
+        _forecaster_cfg_version = cur_ver
     if fast:
         if _fast_forecaster is None:
             _fast_forecaster = _build_forecaster(True)
@@ -135,11 +145,14 @@ def get_forecaster(fast: bool = False) -> SpeculativeForecaster:
 async def health():
     """健康检查：顺带报告模型服务是否在线。兼容 strata（/status）与 llama.cpp（/health）。"""
     def probe():
+        import urllib.request
+        from urllib.parse import urlsplit
+        # 本机 HTTP_PROXY 会误转发 127.0.0.1/localhost 请求 → 探针超时误报 unknown。
+        # 用空 ProxyHandler 建 opener，强制直连回环地址。
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        u = urlsplit(LLM_BASE_URL())
         try:
-            import urllib.request
-            from urllib.parse import urlsplit
-            u = urlsplit(LLM_BASE_URL)
-            with urllib.request.urlopen(f"{u.scheme}://{u.netloc}/status", timeout=2) as r:
+            with opener.open(f"{u.scheme}://{u.netloc}/status", timeout=3) as r:
                 st = json.loads(r.read())
             return {
                 "llm_service": "strata",
@@ -149,10 +162,7 @@ async def health():
         except Exception:
             pass
         try:
-            import urllib.request
-            from urllib.parse import urlsplit
-            u = urlsplit(LLM_BASE_URL)
-            with urllib.request.urlopen(f"{u.scheme}://{u.netloc}/health", timeout=2) as r:
+            with opener.open(f"{u.scheme}://{u.netloc}/health", timeout=3) as r:
                 if r.status == 200:
                     return {"llm_service": "llamacpp", "llm_busy": None, "llm_prompt_tokens": 0}
         except Exception:
@@ -163,13 +173,108 @@ async def health():
     # 向量编码来源如实上报：semantic（真实 embedding，语义档 eps 0.38）/
     # hash（hashed-TF 词面近似，eps 0.60）。供前端/评审核对，不粉饰。
     _embed_provider = (
-        "semantic" if (LLM_EMBEDDING_MODEL and LLM_EMBEDDING_MODEL != LLM_MODEL)
+        "semantic" if (LLM_EMBEDDING_MODEL() and LLM_EMBEDDING_MODEL() != LLM_MODEL())
         else "hash"
     )
-    return {"status": "ok", "llm_url": LLM_BASE_URL, "model": LLM_MODEL,
+    return {"status": "ok", "llm_url": LLM_BASE_URL(), "model": LLM_MODEL(),
             "embed_provider": _embed_provider,
-            "embedding_model": LLM_EMBEDDING_MODEL or None,
-            "exec_use_llm": EXEC_USE_LLM, **info}
+            "embedding_model": LLM_EMBEDDING_MODEL() or None,
+            "exec_use_llm": EXEC_USE_LLM(),
+            "config_file": str(llm_config.CONFIG_PATH) if llm_config.CONFIG_PATH.exists() else None,
+            **info}
+
+
+class LLMConfigPatch(BaseModel):
+    """界面下发的配置补丁。留空字段表示不改；api_key 空串表示保持原值。"""
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    embedding_model: str | None = None
+    exec_use_llm: bool | None = None
+
+
+@app.get("/api/config/llm")
+async def get_llm_config():
+    """读取当前生效的 LLM 配置（api_key 脱敏）+ 每个字段的来源标注。"""
+    return llm_config.snapshot(mask=True)
+
+
+@app.post("/api/config/llm")
+async def post_llm_config(patch: LLMConfigPatch):
+    """热更新 LLM 配置：写盘持久化 + 使推理器缓存失效。下一次调用即用新配置。
+
+    诚实原则：api_key 永不明文回传；返回的是脱敏快照。
+    """
+    data = {k: v for k, v in patch.model_dump().items() if v is not None}
+    if not data:
+        return {"ok": False, "error": "没有可更新的字段", **llm_config.snapshot(mask=True)}
+    cfg = llm_config.update(data, persist=True)
+    return {"ok": True, "config": cfg}
+
+
+@app.post("/api/config/llm/reset")
+async def reset_llm_config():
+    """清除界面覆盖，回到环境变量/默认值。"""
+    cfg = llm_config.reset_to_defaults(persist=True)
+    return {"ok": True, "config": cfg}
+
+
+@app.post("/api/config/llm/test")
+async def test_llm_config(patch: LLMConfigPatch | None = None):
+    """用给定配置（不落盘）或当前配置测试模型端点连通性，返回真实响应或可读错误。
+
+    只探测 /models 或 /health，不消耗推理槽、不生成内容。
+    """
+    from urllib.parse import urlsplit
+    import urllib.request
+
+    cfg = llm_config.snapshot(mask=False)
+    if patch is not None:
+        for k, v in patch.model_dump().items():
+            if v is not None and not (k == "api_key" and v == ""):
+                cfg[k] = v
+    base = str(cfg.get("base_url", "")).rstrip("/")
+    model = cfg.get("model", "")
+    result: dict[str, Any] = {"ok": False, "base_url": base, "model": model}
+
+    def probe():
+        u = urlsplit(base)
+        origin = f"{u.scheme}://{u.netloc}"
+        # 回环地址（本机模型）必须绕过 HTTP_PROXY，否则被误转发；
+        # 远程端点则尊重系统代理配置。
+        _opener = (
+            urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            if u.hostname in ("localhost", "127.0.0.1", "::1")
+            else urllib.request.build_opener()
+        )
+        # llama.cpp / vLLM 都支持 /health；先试它，快且不占槽
+        for path in ("/health", "/v1/models"):
+            try:
+                req = urllib.request.Request(
+                    origin + path,
+                    headers={"Authorization": f"Bearer {cfg.get('api_key', 'EMPTY')}"},
+                )
+                with _opener.open(req, timeout=4) as r:
+                    body = r.read(2048).decode("utf-8", "replace")
+                    if path == "/v1/models":
+                        try:
+                            ids = [m.get("id") for m in json.loads(body).get("data", [])]
+                            result["models"] = ids[:20]
+                            result["model_registered"] = model in ids if ids else None
+                        except Exception:
+                            pass
+                    return True, path, r.status, body[:200]
+            except Exception as e:
+                last = f"{type(e).__name__}: {e}"
+        return False, None, None, last
+
+    ok, path, status, detail = await asyncio.to_thread(probe)
+    result.update(ok=ok, probe_path=path, http_status=status, detail=detail)
+    if ok:
+        result["note"] = "端点可达。若 model_registered=false，检查模型别名是否与服务端一致。"
+    else:
+        result["note"] = "端点不可达。检查地址/端口，以及模型服务是否已启动。"
+    return result
 
 
 @app.get("/api/forecast")
@@ -597,8 +702,8 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
             asyncio.create_task(conn.send({"type": "task_update", **task}))
 
         tracker = TaskTracker(callback=on_task_update)
-        executor = AgentExecutor(LLM_BASE_URL, LLM_MODEL, tracker,
-                                 use_llm=EXEC_USE_LLM)
+        executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker,
+                                 use_llm=EXEC_USE_LLM())
         conn.active_executor = executor   # cancel 时可直接 abort 它的流式响应
 
         await conn.send({"type": "status", "phase": "executing",
@@ -701,9 +806,9 @@ async def run_explain(conn: WSConnection, data: dict):
         await conn.send(out)
         return
 
-    if EXEC_USE_LLM:
+    if EXEC_USE_LLM():
         tracker = TaskTracker(callback=lambda t: None)
-        executor = AgentExecutor(LLM_BASE_URL, LLM_MODEL, tracker, use_llm=True)
+        executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker, use_llm=True)
         try:
             # 解释是「用户明确发起」的请求，值得等一下推理槽
             if await asyncio.wait_for(executor._wait_strata(8), timeout=9):
