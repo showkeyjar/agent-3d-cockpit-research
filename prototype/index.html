@@ -884,6 +884,9 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   if(m==='opaque') document.documentElement.classList.add('mode-opaque');
   if(m==='transparent-nolink'){ document.documentElement.classList.add('mode-transparent-nolink'); window._transparentNoLink = true; }
   if(m==='decorative'){ document.documentElement.classList.add('mode-decorative'); window._decorativeMode = true; }
+  // v0.9.43 B2 组：仅隐藏「指纹环」这一路真实内部状态呈现，其余呈现 + 真执行全保留。
+  // 与 B 组唯一差异 = 指纹环有无；不碰 execute / 账本 internal_state / 机位 / 轨道 / 到达牌。
+  if(m==='no-fingerprint'){ window._noFingerprint = true; }
 }catch(e){} })();
 </script>
 <canvas id="scene"></canvas>
@@ -2548,7 +2551,7 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.42';
+const TL_VERSION = 'v0.9.43';
 const TL_SESSION_STARTED = new Date().toISOString();
 
 /* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
@@ -3644,10 +3647,14 @@ function applyForecastResult(msg){
   // v0.9.41：内部状态指纹环——取「上一步真实执行」的指纹挂在「现在」位置。
   // 只认 available；首次提问 _runs 为空 → null → 不生成（绝不伪造）。
   clearFingerprintRing();
-  const _fpState = _runs.length ? (_runs[_runs.length-1].exec.internal_state || null) : null;
-  if (_fpState && _fpState.status === 'available'){
-    _fingerprintRing = buildFingerprintRing(cur, _fpState, travelYaw);
-    if (_fingerprintRing) roadGroup.add(_fingerprintRing);
+  // v0.9.43 B2 组门控：仅跳过指纹环这一路呈现，后续铺路逻辑照常执行。
+  // 账本仍如实记 internal_state；执行/机位/轨道/到达牌零改动。
+  if (!window._noFingerprint) {
+    const _fpState = _runs.length ? (_runs[_runs.length-1].exec.internal_state || null) : null;
+    if (_fpState && _fpState.status === 'available'){
+      _fingerprintRing = buildFingerprintRing(cur, _fpState, travelYaw);
+      if (_fingerprintRing) roadGroup.add(_fingerprintRing);
+    }
   }
 
   // ── 直道模式：一条路走到底，没有岔路 ──
@@ -7783,6 +7790,7 @@ init();
     get wsLog() { return _wsLog.map(x => ({...x})); },
     // v0.9.32 H2.2 C 组只读钩子（数据诚实/呈现一致的可复算核验）
     get decorativeMode() { return window._decorativeMode === true; },
+    get noFingerprintMode() { return window._noFingerprint === true; },
     get decorTimerCount() { return _decorativeTimers.length; },
     get decorFakeOutput() { return _decorFakeOutput('演示'); },
     get interruptBarText() { return document.getElementById('rcInterruptBar')?.textContent || ''; },

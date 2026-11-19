@@ -83,6 +83,7 @@
       <div class="row" style="margin-top:8px">
         <button class="ghost" data-arm="A">改为 A（不透明）</button>
         <button class="ghost" data-arm="B">改为 B（透明）</button>
+        <button class="ghost" data-arm="B2">改为 B2（关指纹环，实验员专用）</button>
         <button class="ghost" data-arm="C" style="border-color:#d98;color:#d98">改为 C（镜像/deception，实验员专用）</button>
         <span class="sub" style="color:#c08">⚠ 手动覆盖会引入分配偏倚，仅用于紧急平衡；覆盖后记录会显式标记 arm_override=true</span>
         <div class="sub" id="armCWarning" style="display:none;margin-top:6px;color:#f96;line-height:1.5">
@@ -106,6 +107,12 @@
     <div class="sub">请按真实感受作答（1=完全不同意 … 7=完全同意）。</div>
     <div class="card" id="scaleBox"></div>
 
+    <div class="card hidden" id="fscaleCard">
+      <h2>内部状态线索专项（仅 B / B2 组作答）</h2>
+      <div class="sub" style="margin-bottom:8px">本组界面可能显示一条「放射状指纹环」等内部状态线索。请按你实际看到的情况作答；没看到就选 1。</div>
+      <div id="fscaleBox"></div>
+    </div>
+
     <div class="card">
       <h2>行为结果（客观佐证）</h2>
       <div class="q"><div class="lab">你能找到本次任务产生的「产物 / 结果」吗？</div>
@@ -120,6 +127,9 @@
       <div class="q"><div class="lab">v0.9.30 · 你能把这份成果「带走」（复制或导出成文件）吗？</div>
         <div class="yn" data-yn="took_result"><label><input type="radio" name="took_result" value="1">能</label>
           <label><input type="radio" name="took_result" value="0">不能</label></div></div>
+      <div class="q" id="fpNoticedQ" style="display:none"><div class="lab">v0.9.43 · 你注意到界面上那条「指纹环 / 内部状态线索」了吗？</div>
+        <div class="yn" data-yn="fp_noticed"><label><input type="radio" name="fp_noticed" value="1">注意到了</label>
+          <label><input type="radio" name="fp_noticed" value="0">没注意到</label></div></div>
     </div>
 
     <div class="card">
@@ -168,12 +178,16 @@ const ARM_URL = {
   B:'http://127.0.0.1:8770/',
   // v0.9.32 H2.2 镜像组 C：呈现层与 B 完全一致，但执行层为本地伪执行（不调 LLM）。
   // deception 设计——仅实验员手动覆盖选用，须知情同意概括告知+事后 debrief，不进随机池。
-  C:'http://127.0.0.1:8770/?mode=decorative'
+  C:'http://127.0.0.1:8770/?mode=decorative',
+  // v0.9.43 B2 组：B 的全部呈现 + 真执行都保留，只隐藏「指纹环」这一路内部状态呈现。
+  // 与 B 单一差异=指纹环有无，用于检验真实专家指纹的信号呈现是否提升 P1–P4。手动覆盖，不进随机池。
+  B2:'http://127.0.0.1:8770/?mode=no-fingerprint'
 };
 const ARM_DESC = {
   A:'执行不透明：只见「思考中…」+「已完成」，无结果卡/凭据/对比/时间线',
-  B:'执行透明：结果卡+凭据+候选对比+时间线回看+风景来源',
-  C:'镜像组：呈现与 B 一致，但执行为本地模拟（未调用模型）— deception，需 debrief'
+  B:'执行透明：结果卡+凭据+候选对比+时间线回看+风景来源+内部状态指纹环',
+  C:'镜像组：呈现与 B 一致，但执行为本地模拟（未调用模型）— deception，需 debrief',
+  B2:'指纹环关闭：与 B 完全一致（含真执行/账本 internal_state），仅隐藏 3D 指纹环 — 单变量对照'
 };
 const SCALE = [
   {k:'s1',c:'P1',t:'我相信这一步真正推进了我的任务'},
@@ -186,8 +200,17 @@ const SCALE = [
   {k:'s6',c:'P0',t:'我拿到了一份能用（可复制 / 导出 / 继续深化）的成果，而不只是一段摘要'},
   {k:'s7',c:'P0',t:'我清楚知道这个任务目标到底算不算达成'}
 ];
+// v0.9.43 指纹环专项（B vs B2 单变量对照）：测「真实内部状态信号呈现」的可感知性/信任/可追溯。
+// 与 s1–s7 主量表正交且独立，老记录/其它 arm 可缺值（分析时按缺值处理），不与历史数据混算。
+// 诚实边界：专家 ID 是训练涌现的无名 ID，题项只问「是否看到内部状态线索及感受」，
+// 不问「能否读懂某个专家的含义」——那会诱导被试报告不存在的可解释性。
+const FSCALE = [
+  {k:'f1',c:'P4-内部',t:'我在界面上看到了一条能反映「系统内部如何处理」的线索（如放射状指纹环）'},
+  {k:'f2',c:'P1-信任',t:'这条内部状态线索让我更相信这次执行是真的在计算，而不是装样子'},
+  {k:'f3',c:'P3-追溯',t:'这条内部状态线索帮我理解「上一步是怎么走到这里」的'}
+];
 const LS_KEY = 'm-exp-records';
-const PROTO_VER = 'v0.9.32';
+const PROTO_VER = 'v0.9.43';
 
 /* ---------- 状态 ---------- */
 let S = { arm:null, task:null, pid:null };
@@ -235,11 +258,15 @@ $('#btnToSurvey').addEventListener('click', ()=>{
   $('#scrAssign').classList.add('hidden');
   $('#scrSurvey').classList.remove('hidden');
   if(!$('#scaleBox').children.length) buildScale();
+  // v0.9.43：指纹环专项仅 B/B2 组作答（这两组才有「有/无指纹环」的对照意义）。
+  const isFpArm = (S.arm==='B' || S.arm==='B2');
+  $('#fscaleCard').classList.toggle('hidden', !isFpArm);
+  $('#fpNoticedQ').style.display = isFpArm ? '' : 'none';
 });
 
-function buildScale(){
-  const box = $('#scaleBox');
-  SCALE.forEach(it=>{
+function renderScaleInto(boxSel, items){
+  const box = $(boxSel);
+  items.forEach(it=>{
     const q = document.createElement('div'); q.className='q';
     q.innerHTML = `<div class="lab">${it.k} · <span style="color:var(--acc)">${it.c}</span>　${it.t}</div>
       <div class="scale" data-scale="${it.k}">`+
@@ -247,10 +274,14 @@ function buildScale(){
       `</div><div class="scale"><span>完全不同意</span><span>完全同意</span></div>`;
     box.appendChild(q);
   });
-  $$('#scaleBox .scale label').forEach(l=>l.addEventListener('click',()=>{
+  $$(boxSel+' .scale label').forEach(l=>l.addEventListener('click',()=>{
     const g=l.parentElement; $$('label',g).forEach(x=>x.classList.remove('on'));
     l.classList.add('on'); l.querySelector('input').checked=true;
   }));
+}
+function buildScale(){
+  renderScaleInto('#scaleBox', SCALE);
+  if(!$('#fscaleBox').children.length) renderScaleInto('#fscaleBox', FSCALE);
 }
 
 $('#btnSubmit').addEventListener('click', ()=>{
@@ -258,12 +289,21 @@ $('#btnSubmit').addEventListener('click', ()=>{
   const rec = { pid:S.pid, arm:S.arm, arm_override:S.arm_override || false, task_type:S.task.type, prototype_ver:PROTO_VER, ts:new Date().toISOString() };
   let ok=true;
   SCALE.forEach(it=>{ const v=$(`input[name=${it.k}]:checked`); if(!v){ok=false;} else rec[it.k]=+v.value; });
+  // v0.9.43：f1–f3 与行为项只在 B/B2 组收集；其它组写 null，分析按缺值处理。
+  const isFpArm = (S.arm==='B' || S.arm==='B2');
+  FSCALE.forEach(it=>{
+    const v=$(`input[name=${it.k}]:checked`);
+    if(isFpArm){ if(!v){ok=false;} else rec[it.k]=+v.value; }
+    else rec[it.k]=null;
+  });
   ['found_product','named_step','recited_evidence','took_result'].forEach(k=>{
     const v=$(`input[name=${k}]:checked`); rec[k]= v? +v.value : null; });
+  const fpv = $(`input[name=fp_noticed]:checked`);
+  rec.fp_noticed = isFpArm ? (fpv ? +fpv.value : (ok=false, null)) : null;
   rec.think_aloud = $('#think_aloud').value.trim();
   rec.interview_note = $('#interview_note').value.trim();
   rec.notes = $('#notes').value.trim();
-  if(!ok){ toast('请完成 s1–s7 全部评分'); return; }
+  if(!ok){ toast(isFpArm?'请完成 s1–s7 与指纹环专项 f1–f3 全部评分':'请完成 s1–s7 全部评分'); return; }
   const all = getRecs(); all.push(rec); setRecs(all);
   paintM3(rec);
   $('#scrSurvey').classList.add('hidden');
@@ -284,6 +324,12 @@ function paintM3(rec){
     // v0.9.30 P0：结果可用性——与 s1–s5「进展是否真实」正交，不得用 s5 高分替代。
     ['复制/导出 + 展开完整成果 + 追问深化 + 达成度','P0 可用性', rec.s6>=4 && rec.s7>=4 && rec.took_result===1, `s6=${rec.s6} · s7=${rec.s7} · 带走成果=${rec.took_result}`],
   ];
+  // v0.9.43：指纹环专项行，仅 B/B2 组参与对照；B2 的 f 题低分不构成「失败」。
+  if(rec.arm==='B' || rec.arm==='B2'){
+    rows.push(['内部状态指纹环（B/B2 单变量对照）','P4/P1/P3-内部线索',
+      rec.f1>=4 && rec.f2>=4 && rec.f3>=4,
+      `arm=${rec.arm} · f1=${rec.f1} · f2=${rec.f2} · f3=${rec.f3} · 注意到=${rec.fp_noticed}`]);
+  }
   let h = `<table><tr><th>原型特性</th><th>判据</th><th>实验证据</th><th>结论</th></tr>`;
   rows.forEach(r=> h += `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[3]}</td><td>${pass(r[2])}</td></tr>`);
   h += `</table><p class="sub">阈值：对应 s≥4 且行为结果为「是」即判通过。P0 行（s6/s7 + 带走成果）测「结果是否有用」，与 s1–s5「进展是否真实」正交。逐项在 M-EXPERIMENT.md §9 / M3-ACCEPTANCE.md 汇总。</p>`;
@@ -293,6 +339,10 @@ function paintM3(rec){
 /* ---------- 导出 ---------- */
 $('#btnNext').addEventListener('click', ()=>{
   S = { arm:null, task:null, pid:uid() };
+  // v0.9.43：清空上一被试的所有量表/判断题选中态，避免同一浏览器连续记录时残留污染
+  // （尤其 f1–f3 / fp_noticed 直接依赖「本次实际看到」，残留会把 B2 的低分抬成虚假高分组）。
+  $$('input[type=radio]').forEach(r=>{ r.checked=false; });
+  $$('label.on').forEach(l=>l.classList.remove('on'));
   ['scrDone','scrSurvey','scrAssign'].forEach(s=>$(s).classList.add('hidden'));
   $('#scrConsent').classList.remove('hidden');
   $('#consentChk').checked=false; $('#btnStart').disabled=true;
@@ -309,13 +359,16 @@ $('#btnExportAll').addEventListener('click', ()=>{
 $('#btnViewAll').addEventListener('click', ()=>{
   const recs=getRecs(); const b=$('#allBox'); b.classList.toggle('hidden');
   if(b.classList.contains('hidden')) return;
-  let h='<table><tr><th>pid</th><th>arm</th><th>task</th><th>s1</th><th>s2</th><th>s3</th><th>s4</th><th>s5</th><th>s6</th><th>s7</th><th>产物</th><th>步骤</th><th>依据</th><th>带走</th></tr>';
-  recs.forEach(r=> h+=`<tr><td>${r.pid}</td><td>${r.arm}</td><td>${r.task_type}</td><td>${r.s1}</td><td>${r.s2}</td><td>${r.s3}</td><td>${r.s4}</td><td>${r.s5}</td><td>${r.s6 ?? '—'}</td><td>${r.s7 ?? '—'}</td><td>${r.found_product}</td><td>${r.named_step}</td><td>${r.recited_evidence}</td><td>${r.took_result ?? '—'}</td></tr>`);
+  let h='<table><tr><th>pid</th><th>arm</th><th>task</th><th>s1</th><th>s2</th><th>s3</th><th>s4</th><th>s5</th><th>s6</th><th>s7</th><th>f1</th><th>f2</th><th>f3</th><th>注意环</th><th>产物</th><th>步骤</th><th>依据</th><th>带走</th></tr>';
+  recs.forEach(r=> h+=`<tr><td>${r.pid}</td><td>${r.arm}</td><td>${r.task_type}</td><td>${r.s1}</td><td>${r.s2}</td><td>${r.s3}</td><td>${r.s4}</td><td>${r.s5}</td><td>${r.s6 ?? '—'}</td><td>${r.s7 ?? '—'}</td><td>${r.f1 ?? '—'}</td><td>${r.f2 ?? '—'}</td><td>${r.f3 ?? '—'}</td><td>${r.fp_noticed ?? '—'}</td><td>${r.found_product}</td><td>${r.named_step}</td><td>${r.recited_evidence}</td><td>${r.took_result ?? '—'}</td></tr>`);
   h+='</table>'; b.innerHTML=h;
 });
 
 function toCSV(recs){
-  const cols=['pid','arm','arm_override','task_type','s1','s2','s3','s4','s5','s6','s7','found_product','named_step','recited_evidence','took_result','think_aloud','interview_note','notes','prototype_ver','ts'];
+  // v0.9.43：f1/f2/f3/fp_noticed 为 B/B2 指纹环专项，非这两组写空值（CSV 列保留、值留空=缺值）。
+  const cols=['pid','arm','arm_override','task_type','s1','s2','s3','s4','s5','s6','s7',
+    'f1','f2','f3','fp_noticed',
+    'found_product','named_step','recited_evidence','took_result','think_aloud','interview_note','notes','prototype_ver','ts'];
   const esc=v=>{ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   let out='\uFEFF'+cols.join(',')+'\n';
   recs.forEach(r=> out+=cols.map(c=>esc(r[c])).join(',')+'\n');
