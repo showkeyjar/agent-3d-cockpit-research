@@ -91,6 +91,20 @@ COMPLETION_LABELS = {
 }
 
 
+def _rating_means_need_input(self_rating: str) -> bool:
+    """模型自评是否明确表达「待补输入」。只用于把规则判据就低拉回，
+    绝不用它把 partial 抬高成 achieved（自评始终只是附加信号）。
+
+    刻意用精确标签匹配，不用单字「缺/补充」子串——后者会把
+    「部分达成（仍缺细节）」「已补齐数据」这类正常自评误降级，
+    反而制造新的达成度误判。hard_rules 指示模型写的就是 [达成度: 待补输入]。
+    """
+    s = (self_rating or "").strip()
+    if not s:
+        return False
+    return bool(re.search(r"待补输入|need[ _]?input", s, re.IGNORECASE))
+
+
 def judge_completion(*, clarify: bool = False, interrupted: bool = False,
                      ok: bool = False, source: str = "", output: str = "") -> str:
     """规则判据：这一步对用户目标而言达成到什么程度。
@@ -806,12 +820,23 @@ class AgentExecutor:
             if m:
                 self_rating = m.group(1).strip()
                 text = text[:m.start()].strip()
+            # 三轮审查断点1：这里原先硬编码 ACHIEVED —— 但 hard_rules 第5条明确让模型在
+            # 「确实缺外部数据」时于正文后写 [达成度: 待补输入]。原 793 行的 NEED_INPUT
+            # 识别只认「整段以 [ 开头」，正文末尾标记落到这里被硬判 achieved，等于
+            # 「模型自认无解、系统却记成功」，污染 P0/P1 达成率。
+            # 修复：规则判据独立算（judge_completion），self_rating 只作「就低不就高」的
+            # 降级信号——它不能把 partial 抬成 achieved，但能把 achieved 拉回 need_input。
+            completion = judge_completion(ok=True, source="llm", output=text)
+            note = ""
+            if _rating_means_need_input(self_rating):
+                completion = COMPLETION_NEED_INPUT
+                note = "模型自评仍需补充输入，未判为完全达成"
             return {
                 "ok": True, "output": text, "source": "llm",
-                "completion": COMPLETION_ACHIEVED, "self_rating": self_rating,
+                "completion": completion, "self_rating": self_rating,
                 "reason": "", "mode": mode, "tokens": tokens_est,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
-                "note": "",
+                "note": note,
             }
 
         return {

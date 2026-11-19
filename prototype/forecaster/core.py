@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, List, Optional, Protocol
@@ -93,6 +94,9 @@ class ForecastResult:
     cost_ms: float                   # 推演耗时
     thresholds: dict = field(default_factory=dict)
     question_type: str = "choice"     # 问题类型: direct/sequential/choice（LLM判断）
+    # 三轮审查断点6：本次推演的真实来源快照（llm/local/offline）。随结果逐请求返回，
+    # 不再让 server 事后读共享 sampler.last_source —— 并发请求会串线导致来源冒充。
+    source: str = "local"
 
     @property
     def fork_count(self) -> int:
@@ -315,6 +319,11 @@ class SpeculativeForecaster:
         # 多样化分桶判据：默认 hashed-TF 档 0.60；真实 embedding 时由
         # LLMForecaster 传入 DIVERSIFY_EPS_SEMANTIC(0.38)。
         self.diversify_eps = diversify_eps
+        # 三轮审查断点6：server 用 run_in_executor 在线程池跑 forecast，多个并发请求
+        # 共享同一 sampler 实例；last_source/last_question_type 是 sampler 上的可变属性，
+        # A 写完到 B 写完之间被读会串线（local 冒充 llm）。用实例锁把「采样→快照来源」
+        # 串行化，并把来源快照进 ForecastResult 逐请求返回，彻底去掉事后读共享状态。
+        self._forecast_lock = threading.Lock()
 
     def forecast(self, context: str, k: int | None = None) -> ForecastResult:
         import time
@@ -324,8 +333,14 @@ class SpeculativeForecaster:
 
         t0 = time.perf_counter()
 
-        # 1. 采样候选
-        candidates = self.sampler.sample(context, kk)
+        # 1. 采样候选 + 立即快照来源/问题类型（三轮审查断点6）。
+        # sample() 会写 sampler.last_source / last_question_type；并发请求共享同一
+        # sampler，必须在锁内采样后立刻把这两个值快照成局部变量，之后全程用局部，
+        # 不再读共享属性——否则 A 的来源会被 B 覆盖，导致 local 冒充 llm。
+        with self._forecast_lock:
+            candidates = self.sampler.sample(context, kk)
+            _src_snapshot = getattr(self.sampler, 'last_source', 'local')
+            _qtype_snapshot = getattr(self.sampler, 'last_question_type', 'choice')
         if not candidates:
             candidates = [Candidate("无候选", "无", np.zeros(3), "#666666")]
 
@@ -333,9 +348,8 @@ class SpeculativeForecaster:
         #   同一方向——同义簇折叠 + 最远回填，保证 k 块牌语义分散。
         #   direct/sequential 的候选是顺序步骤（向量天然相近），分桶会
         #   把步骤折叠成一个，跳过。
-        #   注意：qtype 读取移前从 sampler.last_question_type 直接读，
-        #   后续 step 6 有兜底读取（无副作用）。
-        _qtype = getattr(self.sampler, 'last_question_type', 'choice')
+        #   qtype 用 step 1 在锁内取好的快照（不再事后读共享 sampler，避免并发串线）。
+        _qtype = _qtype_snapshot
         if _qtype == 'choice' and self.diversify:
             before = len(candidates)
             # 分桶判据随 embedding 类型自动切换（见 self.diversify_eps）：
@@ -368,8 +382,8 @@ class SpeculativeForecaster:
         t1 = time.perf_counter()
         cost_ms = (t1 - t0) * 1000
 
-        # 6. 读取 sampler 判断的问题类型
-        qtype = getattr(self.sampler, 'last_question_type', 'choice')
+        # 6. 问题类型：用 step 1 锁内快照，保证与本次采样同源
+        qtype = _qtype_snapshot
         # 如果 LLM 判断为 direct，强制 road_type 为 straight
         if qtype == 'direct':
             road = RoadType.STRAIGHT
@@ -384,6 +398,7 @@ class SpeculativeForecaster:
             cost_ms=cost_ms,
             thresholds=self.thresholds,
             question_type=qtype,
+            source=_src_snapshot,
         )
 
 

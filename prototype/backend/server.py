@@ -341,7 +341,9 @@ async def forecast_api(context: str = "你好，帮我写一段Python爬虫", k:
         "clusters": result.clusters,
         "cost_ms": round(result.cost_ms, 1),
         "fork_count": result.fork_count,
-        "source": getattr(fc.sampler, "last_source", "local"),
+        # 三轮审查断点6：从本次 ForecastResult 的快照读来源，不再读共享 sampler 属性
+        # （并发请求会因 last_source 被互相覆盖而串线，导致 local/llm 冒充）。
+        "source": getattr(result, "source", "local"),
         "fast": bool(fast),
     }
 
@@ -453,6 +455,12 @@ class WSConnection:
         self.cancel_event: asyncio.Event | None = None
         self.active_executor = None
         self.exec_task: asyncio.Task | None = None
+        # 三轮审查断点7：cancel 必须与「持锁正在运行那一轮」绑定。连续两次 execute
+        # 时第二次会排队，而共享 cancel_event 被覆盖 → cancel 只 set 到排队轮，真正
+        # 在跑的那轮 abort 后查自己旧 event 未 set，被误记为 error/achieved。
+        # cancel_epoch 每次 cancel +1；排队轮获锁后若发现提交后发生过 cancel 就跳过。
+        self.cancel_epoch = 0
+        self.active_cancel_event: asyncio.Event | None = None
 
     async def send(self, msg: dict):
         # task_update 回调是 create_task 异步发出的，和主流程 send 会并发写同一个 WS，
@@ -546,17 +554,30 @@ async def ws_endpoint(ws: WebSocket):
                 await conn.send({"type": "reset_ack"})
 
             elif data.get("type") == "execute":
-                # 后台执行，不阻塞接收循环：用户可连续点击 / 重新选路
-                conn.cancel_event = asyncio.Event()
+                # 后台执行，不阻塞接收循环：用户可连续点击 / 重新选路。
+                # 三轮审查断点7：每轮独立 cancel_event，并在「持锁后」才登记为活跃轮，
+                # 这样排队轮不会覆盖正在运行那轮的取消信号。
+                my_cancel = asyncio.Event()
+                conn.cancel_event = my_cancel       # 兼容旧读点
+                submitted_epoch = conn.cancel_epoch  # 提交时的纪元快照
                 conn.exec_task = asyncio.create_task(
-                    run_execute(conn, data, conn.cancel_event))
+                    run_execute(conn, data, my_cancel, submitted_epoch))
 
             elif data.get("type") == "cancel":
                 # v0.9.16：停止生成。协作式取消 + 立即掐断流式 HTTP 连接；
                 # 收尾由 run_execute 的 finally 统一发 execute_done(interrupted)。
-                active = bool(conn.exec_task and not conn.exec_task.done())
-                if active:
-                    conn.cancel_event.set()
+                # 三轮审查断点7：cancel 只作用于「持锁正在运行」的那一轮——用
+                # active_cancel_event + active_executor，而不是 conn.cancel_event
+                # （后者可能属于排队中、尚未开跑的第二轮）。epoch++ 让排队轮获锁后
+                # 自查跳过，避免停了 A 却把 B 记成执行完成。
+                conn.cancel_epoch += 1
+                # 复核补充：active 不仅看「持锁运行轮」，也看是否有未完成的 exec_task
+                # （排队轮）——否则 A 刚结束/B 未获锁的窗口内 cancel 会回 active=false，
+                # 但 epoch++ 仍会跳过 B，反馈与实际不符。
+                active = (conn.active_cancel_event is not None) or \
+                         bool(conn.exec_task and not conn.exec_task.done())
+                if conn.active_cancel_event is not None:
+                    conn.active_cancel_event.set()
                     if conn.active_executor is not None:
                         await conn.active_executor.abort()
                 await conn.send({"type": "cancel_ack", "active": active})
@@ -652,7 +673,8 @@ async def run_forecast_stream(conn: WSConnection, context: str, k: int, fast: in
         "clusters": result.clusters,
         "cost_ms": round(result.cost_ms, 1),
         "fork_count": result.fork_count,
-        "source": getattr(fc.sampler, "last_source", "local"),
+        # 三轮审查断点6：同上，逐请求快照来源，杜绝并发串线冒充。
+        "source": getattr(result, "source", "local"),
     }
     conn.forecast_result = forecast_msg
     await conn.send(forecast_msg)
@@ -660,7 +682,7 @@ async def run_forecast_stream(conn: WSConnection, context: str, k: int, fast: in
     # 任务追踪在用户选路后由 execute 消息触发（见 ws_endpoint）
 
 
-async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
+async def run_execute(conn: WSConnection, data: dict, cancel_event=None, submitted_epoch=0):
     """
     执行选定候选的任务链：真实 LLM 推理 + 流式任务上报。
 
@@ -671,6 +693,22 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
     这里如实发 execute_done(interrupted=true, ok=false)，不发任何完成态。
     """
     async with conn.exec_lock:
+        # 三轮审查断点7：拿到锁 = 本轮真正开跑，记录 epoch。活跃取消信号延后到
+        # executor 创建成功后才登记（见下方），使其恰好落在 try/finally 覆盖范围内，
+        # 避免构造异常时残留 active_cancel_event。
+        epoch_at_start = conn.cancel_epoch
+        # 排队期间若用户已按过停止（epoch 前进），本轮不应再执行——直接如实回一个
+        # interrupted 收尾，不调用模型、不产生「停止后还在生成」的假进展。
+        if epoch_at_start != submitted_epoch:
+            done_skip = {
+                "type": "execute_done", "output": "", "tasks": [], "ok": False,
+                "label": str(data.get("label") or data.get("candidate_label") or "直接回答"),
+                "source": "local", "reason": "user_cancelled", "chain": [],
+                "note": "停止请求到达时本轮仍在排队，未开始生成", "completion": "partial",
+                "interrupted": True, "cancel_late": False, "elapsed_ms": 0, "tokens": 0,
+            }
+            await conn.send(done_skip)
+            return
         # 前端主推演走 REST /api/forecast，WS 会话里的 conn.context 往往为空。
         # 优先用 execute 消息自带的 context（这是过去「执行中」永久卡住的根因）。
         context = data.get("context") or conn.context or ""
@@ -728,6 +766,9 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
             await conn.send({"type": "token", **payload})
 
         try:
+            # 三轮审查断点7（复核补充）：活跃取消信号在 try 内登记，由 finally 统一
+            # 清理——构造/发送阶段若抛异常，活跃信号不会被登记，自然无残留。
+            conn.active_cancel_event = cancel_event
             result = await asyncio.wait_for(
                 executor.execute(context, candidate_label, planned_steps,
                                  stream_sink=stream_sink,
@@ -782,6 +823,10 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
                 done["note"] = (done.get("note") or "") + "；停止请求到达时已生成完毕"
             await conn.send(done)      # 一定会发，前端一定能解锁
             conn.active_executor = None
+            # 三轮审查断点7：只有本轮登记的活跃信号才由本轮清理，避免排队轮收尾时
+            # 误清掉正在运行那一轮的取消信号。
+            if conn.active_cancel_event is cancel_event:
+                conn.active_cancel_event = None
             await executor.close()
 
 
@@ -799,7 +844,13 @@ async def run_refine(conn: WSConnection, data: dict):
     mode = data.get("mode") if data.get("mode") in ("expand", "followup", "synthesize") else "expand"
     # v0.9.35 synthesize：素材是所有真实轮次原文，放宽上限；其余模式维持 1200。
     _prior_cap = 8000 if mode == "synthesize" else 1200
-    prior = str(data.get("prior_output") or "")[:_prior_cap]
+    prior_raw = str(data.get("prior_output") or "")
+    # 三轮审查断点9：超长素材被静默硬切、却仍声称「综合全部真实轮次」——记下截断事实，
+    # 稍后在回执里如实标注并把达成度降为 partial（可核对性 P4）。
+    # 真正的截断常发生在前端（startSynthesize 也截 8000），故合并前端上报的 prior_truncated，
+    # 两层任一截断都如实标注。
+    _prior_truncated = len(prior_raw) > _prior_cap or bool(data.get("prior_truncated"))
+    prior = prior_raw[:_prior_cap]
     instruction = str(data.get("instruction") or "")[:300]
     task_kind = data.get("task_kind")
     if task_kind not in ("compose", "analysis", "general"):
@@ -812,6 +863,18 @@ async def run_refine(conn: WSConnection, data: dict):
         "tokens": 0, "elapsed_ms": 0, "interrupted": False,
     }
     t0 = time.monotonic()
+    # 三轮审查断点8：synthesize/expand 的承诺是「综合/扩写已拿到的真实成果」。
+    # 空素材时若照常调 LLM，模型只能凭 context 编造，却被判 achieved——等于伪造。
+    # 这里先做输入守卫：无真实素材直接拒绝，不调用模型、不发 achieved。
+    # （前端 startSynthesize/startRefine 已有 parts.length<1 拦截；此守卫覆盖直连/竞态路径。）
+    if not prior.strip():
+        done.update({
+            "reason": "no_material", "completion": "partial",
+            "note": "没有可综合/扩写的真实素材，未调用模型",
+        })
+        done["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+        await conn.send(done)
+        return
     cancel_event = asyncio.Event()
     tracker = TaskTracker(callback=lambda d: None)
     executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker,
@@ -840,6 +903,13 @@ async def run_refine(conn: WSConnection, data: dict):
         print(f"[refine] error: {e}")
         done.update({"reason": "error", "note": str(e)})
     finally:
+        # 三轮审查断点9：素材被硬切时如实标注，不冒充「综合了全部轮次」；达成度降为
+        # partial（输出本身仍真实可用，只是覆盖范围不完整）。仅 synthesize 有此承诺。
+        if _prior_truncated and mode == "synthesize" and done.get("ok"):
+            done["completion"] = "partial"
+            done["material_truncated"] = True
+            done["note"] = (done.get("note") or "") + \
+                f"（素材超过 {_prior_cap} 字已截断，综合仅覆盖前 {_prior_cap} 字）"
         done["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
         await conn.send(done)
         await executor.close()

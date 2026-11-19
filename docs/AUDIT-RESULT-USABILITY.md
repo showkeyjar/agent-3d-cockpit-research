@@ -142,3 +142,78 @@
   研究分析须把它们与「首次执行轮」分开统计，不得混作 P1 真实执行证据；
 - 二轮审查再次印证主线判断：真问题集中在「结果 → 可用终版」链路与判据一致性，
   而非呈现层加码（与 EVIDENCE.md 结论一致）。
+
+---
+
+## 8. 三轮审查：全链路 10 断点（v0.9.36）
+
+> 2026-11-19 系统审查。方法：两路只读走查（后端执行/推演协议链 + 前端结果/数据链），
+> 逐个定位「声称 vs 实际」断点；对每条亲自下钻核实代码后才动手。10 条全部有代码铁证，
+> 且不在 §1–§7 已修清单内。修后另派只读 agent 复核修复本身，又补修 4 处不完整/过宽之处。
+> 纪律不变：所有修复不碰 3D 机位/轨道/到达牌不变量，refine/synthesize 不劫持 execute 主链。
+
+### A. 后端（5 断点）
+
+- **断点1（高）refine 自评「待补输入」被硬判 achieved**。`hard_rules` 让模型在正文后写
+  `[达成度: 待补输入]`，但 NEED_INPUT 识别只认「整段以 `[` 开头」，正文末尾标记落到
+  `task_tracker.refine()` 成功分支被硬编码 `COMPLETION_ACHIEVED`——模型自认无解、系统记成功。
+  修复：规则判据 `judge_completion` 独立算，`self_rating` 只作「就低不就高」降级信号；
+  `_rating_means_need_input` 经复核收窄为精确标签（避免「仍缺细节」误降级）。
+  验证：`test_audit_round3_backend.py` 判据 6 项。
+- **断点6（高）共享 forecaster 单例来源串线**。`_forecaster` 单例的 `last_source`/`last_question_type`
+  写在 sampler 上，并发 forecast（REST+WS / 两批路牌）时 A 的来源被 B 覆盖，local 冒充 llm。
+  修复：`SpeculativeForecaster` 加实例锁把「采样→快照」串行化，来源/qtype 快照进
+  `ForecastResult.source`，server 逐请求从 result 读（两处均改），不再事后读共享属性。
+  验证：`test_audit_round3_source.py` 7 项（含双线程竞态快照）。
+- **断点7（中）排队 execute 的 cancel 归属错乱**。连续两次 execute 时第二次排队，共享
+  `cancel_event` 被覆盖 → cancel 只 set 排队轮，真正持锁在跑那轮 abort 后查旧 event 未 set，
+  被误记 error/achieved。修复：每轮独立 event + `cancel_epoch`/`submitted_epoch`，cancel 只作用
+  持锁活跃轮（`active_cancel_event`+`active_executor`），排队轮获锁后 epoch 落后则跳过并发诚实
+  interrupted 收尾；活跃信号在 try 内登记、finally 清理（复核补修异常路径残留 + cancel_ack 语义）。
+  验证：`test_audit_round3_cancel.py` 7 项（真 LLM，两轮均 interrupted/user_cancelled）。
+- **断点8（中）refine 空素材无守卫**。synthesize/expand 空素材照常调 LLM → 模型凭 context 编造
+  却判 achieved。修复：入口守卫 `prior.strip()` 为空直接回 `no_material`/`ok=False`/`partial`，
+  不调模型。验证：`test_audit_round3_backend.py` 4 项。
+- **断点9（中）超长素材静默截断**。真正的截断在前端 `startSynthesize` 的 `.slice(0,8000)`，
+  旧版后端标注分支恒不触发、前端 note 也不读标注，仍谎称「综合全部轮次」。修复（复核后）：
+  前端上报 `prior_truncated`，后端合并标注 `material_truncated` + 降 partial，前端 note 消费标注。
+  验证：后端截断 3 项 + 前端 note 2 项。
+
+### B. 前端（5 断点）
+
+- **断点2（高）后端 completion 被丢弃**。后端 `execute_done` 明确下发 completion（749/766），
+  但 `onExecuteDone` 透传字段无 completion → 结果卡/账本全走前端 fallback，need_input 永不出现，
+  且 fallback 二要素判据与后端规则判据不一致。**此条推翻二轮审查「如实透传、两处等价」的结论**。
+  修复：透传 `completion`。验证：`test_audit_round3.js` 3 项。
+- **断点3（高）refine 通道交互死锁**。`_refineBusy`/`_synthPending` 唯一复位在 onRefineDone；
+  error 分支、WS 断线、后端卡死均不复位 → 深化永久被拒、刷新才恢复（丢整段会话）。
+  修复：统一 `resetRefineBusy()`，接 error/onclose/前端 90s 超时。
+  验证：`test_audit_round3.js` 3 项。
+- **断点4（中高）synthesized 标记未进账本 + 二次综合污染**。标记只写进导出时剔除的 `detail`；
+  `collectRealOutputs` 不过滤综合轮 → 连续综合把上次终版当原始素材。修复：标记提升进
+  `exec.synthesized` + CSV 列 + summary + 汇总 .md 标注；collectRealOutputs 排除综合轮。
+  验证：`test_audit_round3.js` 5 项。
+- **断点5（中）refine 后追问链断**。`refine_pending:true` 写入后全文件无清除，`rcDeliver`
+  （含追问按钮）永久隐藏。修复：删除该写入（进行中态由 rcRefining 面板承担）。
+  验证：`test_audit_round3.js` 3 项。
+- **断点10（中）clarify 无条件推进 3D 主轴**。`finishExecution` 中 `markBranchTravelled` 无条件
+  执行，与「澄清不算走过一步」注释冲突 → 补答后同 idx 再 push 一次、零长度 tube、undo 多退。
+  修复（复核补修）：`markBranchTravelled` 与 `markCardsTravelled` 均加 `!detail.clarify`。
+  验证：`test_audit_round3.js` 2 项（clarify 不增长 / 非 clarify +1 对照）。
+
+### C. 复核补修（只读 agent 二轮发现）
+
+- 断点9 截断源在前端而非后端（见上）；断点10 `markCardsTravelled` 漏改（见上）；
+  断点1 匹配过宽（见上）；断点7 异常路径活跃信号残留 + cancel_ack.active 语义（见上）。
+
+### D. 验证与影响
+
+- 新增 5 个测试：后端 `test_audit_round3_backend.py` / `_cancel.py` / `_source.py`，
+  前端 `test_audit_round3.js`；共 6+7+7+19 = 39 项全通过。
+- 全量既有回归无回退：cancel 33、timeline 42、keyboard 22、decorative、rail_camera 14、
+  refine_sync、completion_consistency、synthesize、clarify×3、p0、task_kind×2、p0_backend、
+  synthesize_backend 全过。
+- 研究结论影响：① 二轮「completion 已透传」结论作废，本轮才真正打通后端判据到账本；
+  ② P1 账本现可区分首执/refine/synthesize/decorative 四类轮 + 三态完成度 + 来源四态，
+    达成度以后端规则判据为准、自评仅降级不强抬；③ 再次印证真问题集中在判据一致性与
+    结果链路，非呈现层加码。

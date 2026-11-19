@@ -2267,7 +2267,13 @@ const WS_URL = 'ws://localhost:8770/ws';
 function wsConnect(){
   try { ws = new WebSocket(WS_URL); } catch(e) { return; }
   ws.onopen = () => { wsConnected = true; updateConn(); };
-  ws.onclose = () => { wsConnected = false; updateConn(); setTimeout(wsConnect, 3000); };
+  // 三轮审查断点3：WS 断线时 refine 通道的 refine_done 永远不会到达，若不复位
+  // _refineBusy 会永久锁死「展开/综合」。断线即复位（主执行链有独立解锁机制）。
+  ws.onclose = () => {
+    wsConnected = false; updateConn();
+    if (_refineBusy){ resetRefineBusy(); showToast('连接中断，深化已取消，可重试', '#ff8a8a'); }
+    setTimeout(wsConnect, 3000);
+  };
   ws.onerror = () => { wsConnected = false; updateConn(); };
   ws.onmessage = e => {
     try { handleWsMessage(JSON.parse(e.data)); }
@@ -2286,6 +2292,8 @@ function handleWsMessage(msg){
   else if (msg.type === 'explain_result') showExplain(msg);
   else if (msg.type === 'error'){
     // 关键：后端任何报错都要解锁，绝不让按钮停在「执行中」
+    // 三轮审查断点3：refine 通道也在等 refine_done，报错时一并复位，避免死锁。
+    if (_refineBusy) resetRefineBusy();
     showToast('后端：' + (msg.msg || '出错了'), '#ff8a8a');
     finishExecution(false, msg.msg || '');
   }
@@ -2325,6 +2333,37 @@ const CLARIFY_STREAK_GUIDE = 2;
 let _refineBusy = false;
 let _refineOpenDetail = null;
 let _synthPending = false;   // v0.9.35：下一次 refine_done 是「多轮综合答案」，非单卡深化
+let _refineStartedAt = 0;    // 三轮审查断点3：refine 发起时刻，用于前端超时兜底
+const REFINE_TIMEOUT_MS = 90000;  // 后端 wait_for=70s，留 20s 余量
+// 三轮审查断点3：refine/synthesize 通道的唯一复位入口。onRefineDone 正常返回、
+// 后端 error、WS 断线、前端超时都走这里，避免 _refineBusy 永久为 true 造成交互死锁。
+function resetRefineBusy(){
+  _refineBusy = false;
+  _synthPending = false;
+  _refineStartedAt = 0;
+  const box = document.getElementById('rcRefining');
+  if (box) box.style.display = 'none';
+  const btnE = document.getElementById('rcExpandBtn');
+  const btnF = document.getElementById('rcFollowBtn');
+  if (btnE) btnE.disabled = false;
+  if (btnF) btnF.disabled = false;
+}
+// 三轮审查断点3：前端兜底——发起 refine 后若超过 REFINE_TIMEOUT_MS 仍未收到
+// refine_done（后端进程重启/卡死/消息丢失），自动复位通道，不靠刷新页面。
+let _refineTimer = null;
+function _armRefineTimeout(){
+  if (_refineTimer) clearTimeout(_refineTimer);
+  _refineTimer = setTimeout(() => {
+    _refineTimer = null;
+    if (_refineBusy){
+      resetRefineBusy();
+      showToast('生成超时（后端无响应），已解锁，可重试', '#ff8a8a');
+    }
+  }, REFINE_TIMEOUT_MS);
+}
+function _clearRefineTimeout(){
+  if (_refineTimer){ clearTimeout(_refineTimer); _refineTimer = null; }
+}
 const COMPLETION_META = {
   achieved:   { text:'目标达成', color:'#34f5a0', bg:'rgba(52,245,160,.10)' },
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
@@ -4382,6 +4421,8 @@ function startRefine(mode){
     showToast('后端未连接，无法再次生成', '#ffb13d'); return;
   }
   _refineBusy = true;
+  _refineStartedAt = Date.now();
+  _armRefineTimeout();
   _refineOpenDetail = d;
   const box = document.getElementById('rcRefining');
   const txt = document.getElementById('rcRefiningText');
@@ -4409,15 +4450,9 @@ function onRefineAck(msg){
     : '模型正在按你的要求深化（真实再次生成）…';
 }
 function onRefineDone(msg){
-  _refineBusy = false;
   const isSynth = (_synthPending || msg.mode === 'synthesize');
-  _synthPending = false;
-  const box = document.getElementById('rcRefining');
-  if (box) box.style.display = 'none';
-  const btnE = document.getElementById('rcExpandBtn');
-  const btnF = document.getElementById('rcFollowBtn');
-  if (btnE) btnE.disabled = false;
-  if (btnF) btnF.disabled = false;
+  _clearRefineTimeout();
+  resetRefineBusy();   // 三轮审查断点3：统一复位（isSynth 已先取到，避免被清掉）
 
   // synthesize 是多轮综合，无单一被深化的卡；其余模式沿用当前卡为 base
   const base = isSynth ? null : (_refineOpenDetail || _activeCardDetail);
@@ -4448,15 +4483,24 @@ function onRefineDone(msg){
     elapsed_ms: msg.elapsed_ms, tokens: msg.tokens,
     chain: [isSynth ? 'synthesize' : ('refine:' + msg.mode)],
     completion: msg.completion, self_rating: msg.self_rating,
+    // 三轮审查断点9：后端标注素材截断时不再声称「综合全部真实成果」，如实说明覆盖范围。
     note: isSynth
-      ? (msg.decorative ? '演示模式：本地模拟综合，未调用模型' : '综合本次旅程全部真实成果生成，非逐轮原文拼接')
+      ? (msg.decorative ? '演示模式：本地模拟综合，未调用模型'
+         : (msg.material_truncated
+            ? '素材超过上限已截断，综合仅覆盖前段真实成果（其余轮次未纳入）'
+            : '综合本次旅程全部真实成果生成，非逐轮原文拼接'))
       : (msg.decorative ? '演示模式：本地展开，未调用模型' : '基于上一轮真实成果再次生成'),
     synthesized: !!isSynth,
+    material_truncated: !!msg.material_truncated,
     decorative: !!msg.decorative || (base && !!base.decorative),
     count: 1, tasks: [],
     pos: isSynth ? null : (base?.pos || null),
     branchLabel: isSynth ? '' : (base?.branchLabel || ''),
-    refine_pending: true,
+    // 三轮审查断点5：旧版在此写 refine_pending:true，而 showResultCard 用
+    // `hasReal && !d.refine_pending` 控制 rcDeliver 显隐——该标记全文件无清除逻辑，
+    // 导致「展开/追问」按钮在首次 refine 后永久隐藏，多轮深化链断在第一次。
+    // refine 进行中态由 rcRefining 面板 + 按钮 disabled 承担，不需此标记；完成后
+    // 直接保留交付/追问入口，让「继续深化」可持续。
   };
   recordRun(refineDetail, 'done');
   _forkCtx = null;
@@ -4751,7 +4795,7 @@ const TL_CSV_COLS = [
   'forecast_candidate_labels','forecast_candidate_count',
   'forecast_fork_count','forecast_cost_ms','exec_source','exec_reason',
   'exec_ok','exec_interrupted','exec_clarify','exec_elapsed_ms','exec_tokens',
-  'exec_chain','exec_completion','exec_self_rating','exec_decorative',
+  'exec_chain','exec_completion','exec_self_rating','exec_decorative','exec_synthesized',
   'output_chars','output','note',
 ];
 
@@ -4838,6 +4882,10 @@ function recordRun(detail, status){
       // v0.9.32 H2.2 C 组：这是模拟执行（非真实推进）。source 仍为 'llm' 以维持
       // 呈现一致，但研究数据用 decorative 正交标记明示，绝不混入 P1 真实结论。
       decorative: !!detail.decorative,
+      // 三轮审查断点4：综合终版轮（mode=synthesize）虽 source=llm、status=done，
+      // 但它是「多次真实产出的改写」而非首次执行证据。正交标记，统计时单列，
+      // 且 collectRealOutputs 排除它，避免二次综合把上次终版当原始素材喂进去。
+      synthesized: !!detail.synthesized,
     },
     output:String(detail.output ?? ''),
     tasks, note:String(detail.note || ''),
@@ -5090,6 +5138,7 @@ function tlFlatRun(r){
     exec_chain:Array.isArray(m.chain) ? m.chain.join(' → ') : '',
     exec_completion:m.completion || '', exec_self_rating:m.self_rating || '',
     exec_decorative:m.decorative ? '1' : '0',
+    exec_synthesized:m.synthesized ? '1' : '0',
     output_chars:String(r.output || '').length,
     output:r.output || '', note:r.note || '',
   };
@@ -5129,6 +5178,8 @@ function exportRuns(format){
     completion_need_input:runs.filter(r => r.exec.completion === 'need_input').length,
     refine_runs:runs.filter(r => Array.isArray(r.exec.chain)
                  && r.exec.chain.some(c => String(c).startsWith('refine:'))).length,
+    // 三轮审查断点4：综合终版轮单列，不与首次执行轮混算 P1 证据
+    synthesize_runs:runs.filter(r => r.exec.synthesized === true).length,
   };
   if (format === 'csv') return runsToCsv(runs);
   return JSON.stringify({
@@ -5175,8 +5226,9 @@ function exportAllDeliverables(){
       + (real.some(r => r.exec?.decorative) ? '\n- ⚠ 演示组：本汇总含本地模拟执行（decorative 标 1 的轮次），非模型真实产出（H2.2 镜像组 C 组）。' : ''),
     '- 说明：' + (real.some(r => r.exec?.decorative)
         ? '本文件汇总本次旅程的产出（逐轮原文，未经改写）；其中标注「演示模式」的轮次为本地模拟，不可作为真实执行依据。达成度为对用户目标而言的完成程度。'
-        : '本文件汇总本次旅程中模型的真实产出（逐轮原文，未经改写）。'
-          + '达成度为对用户目标而言的完成程度；refine 轮为基于上一轮真实成果的再次生成。'),
+        : '本文件汇总本次旅程中模型的真实产出。'
+          + '达成度为对用户目标而言的完成程度；refine 轮为基于上一轮真实成果的再次生成；'
+          + 'synthesize 轮为综合多轮真实产出的终版（已改写，非逐轮原文）。'),
     '',
     '---',
     '',
@@ -5195,7 +5247,8 @@ function exportAllDeliverables(){
                     : (r.exec.source === 'llm' ? '大模型真实生成' : r.exec.source)}`
       + ` · 耗时：${Number.isFinite(r.exec.elapsed_ms) ? (r.exec.elapsed_ms/1000).toFixed(1)+'s' : '—'}`
       + ` · token：${r.exec.tokens ?? '—'}`);
-    if (isRefine) lines.push('- 类型：基于上一轮真实成果的再次生成（refine）');
+    if (r.exec?.synthesized) lines.push('- 类型：综合多轮真实产出的终版（synthesize，已改写，非逐轮原文）');
+    else if (isRefine) lines.push('- 类型：基于上一轮真实成果的再次生成（refine）');
     lines.push('');
     lines.push(String(r.output).trim());
     lines.push('');
@@ -5221,6 +5274,9 @@ function collectRealOutputs(){
   const out = [];
   for (const r of _runs){
     if (r.status !== 'done' || r.exec?.source !== 'llm' || r.exec?.decorative) continue;
+    // 三轮审查断点4：综合终版本身不是「原始素材」——排除它，否则连续综合会把
+    // 上一次的终版当真实轮喂回，形成自我嵌套、违背「逐轮原文」的承诺。
+    if (r.exec?.synthesized) continue;
     const t = String(r.output || '').trim();
     if (!t || seen.has(t)) continue;           // 去重：同一成果多轮/要点+展开不重复喂
     seen.add(t);
@@ -5235,8 +5291,15 @@ function startSynthesize(){
   if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN){
     showToast('后端未连接，无法生成综合答案', '#ffb13d'); return;
   }
-  const prior = parts.map((p,i) => `【第${i+1}轮·${p.label}】\n${p.output}`).join('\n\n').slice(0, 8000);
+  const priorRaw = parts.map((p,i) => `【第${i+1}轮·${p.label}】\n${p.output}`).join('\n\n');
+  // 三轮审查断点9（复核补充）：真正的截断发生在这里（前端），后端收到的已是截后文本。
+  // 记录截断事实随消息下发，让后端如实标注 material_truncated + 降 partial，
+  // 不再冒充「综合了全部轮次」。
+  const priorTruncated = priorRaw.length > 8000;
+  const prior = priorRaw.slice(0, 8000);
   _refineBusy = true;
+  _refineStartedAt = Date.now();
+  _armRefineTimeout();
   _synthPending = true;                          // 标记：下一次 refine_done 是综合结果
   _refineOpenDetail = null;                      // synthesize 无单一 base 卡
   const box = document.getElementById('rcRefining');
@@ -5249,6 +5312,7 @@ function startSynthesize(){
     context: String(parts[0] ? (_runs.find(r=>r.seq===parts[0].seq)?.context || _lastContext || '') : (_lastContext || '')),
     prior_output: prior, instruction: '',
     task_kind: undefined,
+    prior_truncated: priorTruncated,   // 三轮审查断点9：前端截断事实随消息下发
   });
 }
 
@@ -6229,13 +6293,20 @@ function finishExecution(ok, note='', detail={}){
   const autoChain = mode === 'sequential' && typeof _seqAdvance === 'function';
   const isSeqMid = autoChain && ok && idx < _currentCandidates.length - 1;
 
-  if (idx >= 0) markBranchTravelled(idx);
+  // 三轮审查断点10：clarify 时这一步并未真正走完（模型只是停下来要输入），旧版
+  // 仍无条件 markBranchTravelled → 铺 tube + push journey + 隐藏候选牌，把「暂停
+  // 等输入」误记为「走过一步」。补答后对同一 idx 再执行又 push 一次 → 重复节点、
+  // 零长度 tube、undoStep 多退一步却没动。与 6286/6306/6313 的既有纪律一致：
+  // 澄清不推进主轴，等补答后真正执行时才 markBranchTravelled。
+  if (idx >= 0 && !detail.clarify) markBranchTravelled(idx);
   // 澄清场景：这一步并未真正完成，模型只是停下来向用户要输入。
   // 此时绝不能清掉候选牌——否则整条路被清空、只剩一张澄清卡，
   // 用户会误以为「第二阶段路牌全没了」。保留候选牌，等用户补答后
   // 重新执行（clarify=false）时再清未选候选。
   if (_currentMode === 'choice' && !detail.clarify) clearUntakenCandidates();   // 清掉没选的旧候选牌，前方视线留给未来路牌
-  markCardsTravelled(idx);
+  // 三轮审查断点10（复核补充）：2D 候选牌同样不能在 clarify 时被标 travelled/dimmed，
+  // 与 markBranchTravelled 的跳过保持一致——澄清 = 没走过这一步。
+  if (idx >= 0 && !detail.clarify) markCardsTravelled(idx);
 
   const p = _branchPositions[idx];
 
@@ -6418,6 +6489,10 @@ function onExecuteDone(msg){
     output:msg.output, tasks:msg.tasks, source:msg.source, reason:msg.reason,
     elapsed_ms:msg.elapsed_ms, label:msg.label, chain:msg.chain, tokens:msg.tokens,
     planned_steps:msg.planned_steps,
+    // 三轮审查断点2：后端 judge_completion 三态随 execute_done 下发，此前在此入口被
+    // 丢弃，导致结果卡与账本全走前端 fallback 推导（与后端判据不一致、need_input 永不
+    // 出现）。如实透传，让达成度以后端规则判据为准。
+    completion:msg.completion, self_rating:msg.self_rating,
     clarify:msg.clarify, question:msg.question,
     interrupted:!!msg.interrupted, cancel_late:!!msg.cancel_late,
     note:msg.note,
@@ -7516,7 +7591,37 @@ init();
     get synthDetail(){
       const d = _activeCardDetail || {};
       return { synthesized:!!d.synthesized, label:d.label || '', chain:(d.chain||[]).slice(),
-               outputLen:String(d.output||'').length, note:d.note||'' };
+               outputLen:String(d.output||'').length, note:d.note||'',
+               material_truncated:!!d.material_truncated, completion:d.completion || '' };
+    },
+    // 三轮审查回归钩子
+    get refineBusy(){ return { busy:_refineBusy, pending:_synthPending, startedAt:_refineStartedAt }; },
+    _resetRefineBusyForTest(){ resetRefineBusy(); },
+    _armRefineTimeoutForTest(){ _refineBusy = true; _refineStartedAt = Date.now(); _armRefineTimeout(); },
+    get exportRunsPreview(){
+      const data = JSON.parse(exportRuns('json'));
+      const csvHead = exportRuns('csv').split('\r\n')[0];
+      return { summary:data.summary,
+               synthFlags:data.runs.map(r => ({ seq:r.seq, synthesized:!!r.exec.synthesized })),
+               csvHasSynthCol:csvHead.includes('exec_synthesized') };
+    },
+    get journeyLen(){ return journey.length; },
+    // 断点2：驱动一次真实 onExecuteDone，验证后端 completion 透传进账本/结果卡
+    _injectExecuteDoneForTest(msg){
+      execInfo = { idx:-1, label:'', mode:'choice', done:false };
+      onExecuteDone(Object.assign({ ok:true, source:'llm', output:'测试产出',
+        completion:'achieved', tasks:[], chain:[] }, msg || {}));
+      const last = _runs.length ? _runs[_runs.length-1] : null;
+      return { completion:last?.exec?.completion || '', cardCompletion:_activeCardDetail?.completion || '' };
+    },
+    // 断点10：在 idx=0 构造最小分支位置后走一次 finishExecution，验证 clarify 不推进主轴
+    _finishAtForTest(idx, detail){
+      const jBefore = journey.length;
+      if (!_branchPositions[idx]) _branchPositions[idx] = [10 + idx, 0, 10];
+      if (!_currentCandidates[idx]) _currentCandidates[idx] = { label:'测试路', color:'#34f5a0' };
+      execInfo = { idx, label:'测试路', mode:'choice', done:false };
+      finishExecution(!!detail.ok, '', Object.assign({ label:'测试路', tasks:[], output:'产出' }, detail || {}));
+      return { jBefore, jAfter:journey.length };
     },
     _exportDeliverablePreview(){
       const d = _activeCardDetail;
