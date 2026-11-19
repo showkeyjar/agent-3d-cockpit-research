@@ -798,8 +798,22 @@ body.immersive #immersiveHud{display:block;opacity:1;}
    P2/P3/P4 呈现层（含 #progressHud / #decisionChain 及其开关）。
    纯呈现层操纵——不触碰执行层 / 3D 不变量 / 中断态 / 任何数据。
    由 verify_opaque.js 常驻回归锁死。检索时 grep "OPAQUE-MANIPULATION ZONE"。
+
+   ★ v0.9.32 · H2.2 镜像组 C 组 — ?mode=decorative
+   与 A 组相反：呈现层与 B 组逐像素一致（不隐藏任何元素），只把执行层
+   换成前端本地伪执行（不真发 execute / refine、不调 LLM）。用于检验
+   「只补呈现、执行未真实推进时，进展感是否虚高」。
+   数据诚实：伪执行 detail.exec.decorative=true 正交标记（source 仍保留
+   'llm' 以维持呈现一致），导出可据此分辨；不冒充真实执行的研究结论。
+   这是实验 deception 设计，须知情同意概括告知 + 事后 debrief。
+   检索时 grep "DECORATIVE-MANIPULATION ZONE"。
    ══════════════════════════════════════════════════════════════════════ */
-(function(){ try{ if(new URLSearchParams(location.search).get('mode')==='opaque') document.documentElement.classList.add('mode-opaque'); if(new URLSearchParams(location.search).get('mode')==='transparent-nolink'){ document.documentElement.classList.add('mode-transparent-nolink'); window._transparentNoLink = true; } }catch(e){} })();
+(function(){ try{
+  const m = new URLSearchParams(location.search).get('mode');
+  if(m==='opaque') document.documentElement.classList.add('mode-opaque');
+  if(m==='transparent-nolink'){ document.documentElement.classList.add('mode-transparent-nolink'); window._transparentNoLink = true; }
+  if(m==='decorative'){ document.documentElement.classList.add('mode-decorative'); window._decorativeMode = true; }
+}catch(e){} })();
 </script>
 <canvas id="scene"></canvas>
 <div id="immersiveHud">单目 · 立体关 · I 沉浸 · V 立体</div>
@@ -4225,10 +4239,13 @@ function exportDeliverable(d){
     '- 原始任务：' + String(d.context || '').replace(/\s+/g, ' ').trim(),
     '- 采用路径：' + String(d.label || d.branchLabel || '').trim(),
     '- 达成度：' + comp.text + (d.self_rating ? `（模型自评：${d.self_rating}）` : ''),
-    '- 来源：' + (d.source === 'llm' ? '大模型真实生成' : (d.source || '未知')),
+    '- 来源：' + (d.decorative ? '演示模式（本地模拟，未调用模型）'
+                    : (d.source === 'llm' ? '大模型真实生成' : (d.source || '未知'))),
     '- 生成耗时：' + (Number.isFinite(d.elapsed_ms) ? (d.elapsed_ms/1000).toFixed(1)+'s' : (d.elapsed || '—')),
     '- 导出时间：' + new Date().toISOString(),
-    '- 说明：本文件由 agent-3d-cockpit 原型导出，正文为模型真实产出，未经改写。',
+    '- 说明：' + (d.decorative
+        ? '本文件由 agent-3d-cockpit 原型的演示模式导出，正文为本地模拟内容，非模型真实产出（H2.2 镜像组 C 组）。'
+        : '本文件由 agent-3d-cockpit 原型导出，正文为模型真实产出，未经改写。'),
     '',
     '---',
     '',
@@ -4273,6 +4290,8 @@ function startRefine(mode){
   const btnF = document.getElementById('rcFollowBtn');
   if (btnE) btnE.disabled = true;
   if (btnF) btnF.disabled = true;
+  // ★ v0.9.32 H2.2 C 组：深化也是「只呈现、不真执行」——本地伪生成，不发 refine WS。
+  if (window._decorativeMode){ runDecorativeRefine(mode, d); return; }
   wsSend({
     type:'refine', mode,
     context: String(d.context || ''),
@@ -4323,7 +4342,8 @@ function onRefineDone(msg){
     elapsed_ms: msg.elapsed_ms, tokens: msg.tokens,
     chain: ['refine:' + msg.mode],
     completion: msg.completion, self_rating: msg.self_rating,
-    note: '基于上一轮真实成果再次生成',
+    note: msg.decorative ? '演示模式：本地展开，未调用模型' : '基于上一轮真实成果再次生成',
+    decorative: !!msg.decorative || !!base?.decorative,
     count: 1, tasks: [],
     pos: base?.pos || null,
     branchLabel: base?.branchLabel || '',
@@ -4595,7 +4615,8 @@ const TL_CSV_COLS = [
   'forecast_candidate_labels','forecast_candidate_count',
   'forecast_fork_count','forecast_cost_ms','exec_source','exec_reason',
   'exec_ok','exec_interrupted','exec_clarify','exec_elapsed_ms','exec_tokens',
-  'exec_chain','exec_completion','exec_self_rating','output_chars','output','note',
+  'exec_chain','exec_completion','exec_self_rating','exec_decorative',
+  'output_chars','output','note',
 ];
 
 function tlFmtMs(ms){
@@ -4678,6 +4699,9 @@ function recordRun(detail, status){
       completion: detail.completion || (detail.clarify ? 'need_input'
                     : (detail.ok && detail.source === 'llm' ? 'achieved' : 'partial')),
       self_rating: detail.self_rating || '',
+      // v0.9.32 H2.2 C 组：这是模拟执行（非真实推进）。source 仍为 'llm' 以维持
+      // 呈现一致，但研究数据用 decorative 正交标记明示，绝不混入 P1 真实结论。
+      decorative: !!detail.decorative,
     },
     output:String(detail.output ?? ''),
     tasks, note:String(detail.note || ''),
@@ -4929,6 +4953,7 @@ function tlFlatRun(r){
     exec_elapsed_ms:m.elapsed_ms, exec_tokens:m.tokens,
     exec_chain:Array.isArray(m.chain) ? m.chain.join(' → ') : '',
     exec_completion:m.completion || '', exec_self_rating:m.self_rating || '',
+    exec_decorative:m.decorative ? '1' : '0',
     output_chars:String(r.output || '').length,
     output:r.output || '', note:r.note || '',
   };
@@ -4960,6 +4985,8 @@ function exportRuns(format){
     forecast_llm:cnt('llm'), forecast_fast:cnt('fast'),
     forecast_local:cnt('local'), forecast_offline:cnt('offline'),
     exec_llm:runs.filter(r => r.exec.source === 'llm').length,
+    // v0.9.32 H2.2 C 组：模拟执行轮数（这些 source 仍为 llm，但非真实推进，须单列）
+    exec_decorative:runs.filter(r => r.exec.decorative === true).length,
     // v0.9.30 P0：结果可用性二维——达成度分布（与「有没有输出」的 status 分开）
     completion_achieved:runs.filter(r => r.exec.completion === 'achieved').length,
     completion_partial:runs.filter(r => r.exec.completion === 'partial').length,
@@ -5007,10 +5034,13 @@ function exportAllDeliverables(){
     '# 本次旅程 · 成果汇总',
     '',
     `- 任务：${String(real[0].context || '').replace(/\s+/g,' ').trim()}`,
-    `- 真实成果轮数：${real.length} / 本次共 ${_runs.length} 轮`,
-    `- 导出时间：${new Date().toISOString()}`,
-    '- 说明：本文件汇总本次旅程中模型的真实产出（逐轮原文，未经改写）。'
-      + '达成度为对用户目标而言的完成程度；refine 轮为基于上一轮真实成果的再次生成。',
+    `- 成果轮数：${real.length} / 本次共 ${_runs.length} 轮`,
+    `- 导出时间：${new Date().toISOString()}`
+      + (real.some(r => r.exec?.decorative) ? '\n- ⚠ 演示组：本汇总含本地模拟执行（decorative 标 1 的轮次），非模型真实产出（H2.2 镜像组 C 组）。' : ''),
+    '- 说明：' + (real.some(r => r.exec?.decorative)
+        ? '本文件汇总本次旅程的产出（逐轮原文，未经改写）；其中标注「演示模式」的轮次为本地模拟，不可作为真实执行依据。达成度为对用户目标而言的完成程度。'
+        : '本文件汇总本次旅程中模型的真实产出（逐轮原文，未经改写）。'
+          + '达成度为对用户目标而言的完成程度；refine 轮为基于上一轮真实成果的再次生成。'),
     '',
     '---',
     '',
@@ -5025,7 +5055,8 @@ function exportAllDeliverables(){
     lines.push(`- 采用路径：${String(r.branch_label || r.label || '').trim()}`);
     lines.push(`- 达成度：${compText(r.exec.completion)}`
       + (r.exec.self_rating ? `（模型自评：${r.exec.self_rating}）` : ''));
-    lines.push(`- 来源：${r.exec.source === 'llm' ? '大模型真实生成' : r.exec.source}`
+    lines.push(`- 来源：${r.exec.decorative ? '演示模式（本地模拟，未调用模型）'
+                    : (r.exec.source === 'llm' ? '大模型真实生成' : r.exec.source)}`
       + ` · 耗时：${Number.isFinite(r.exec.elapsed_ms) ? (r.exec.elapsed_ms/1000).toFixed(1)+'s' : '—'}`
       + ` · token：${r.exec.tokens ?? '—'}`);
     if (isRefine) lines.push('- 类型：基于上一轮真实成果的再次生成（refine）');
@@ -5540,6 +5571,16 @@ function stopGeneration(){
   const btn = document.getElementById('stopGenBtn');
   if (btn && btn.dataset.state === 'pending') return false;   // 连点不重复发 cancel
   const partial = _streamText;      // 先取快照：clearExecUI 会清掉流面板文本
+  // ★ v0.9.32 H2.2 C 组：伪执行没有真实后端任务，立即本地中断、清吐字定时器，
+  // 走与真实中断完全相同的 finishExecution(interrupted) 路径（呈现一致、数据标 decorative）。
+  if (window._decorativeMode){
+    _decorClearTimers();
+    finishExecution(false, '演示执行已由用户中断', {
+      interrupted:true, reason:'user_cancelled', output:partial,
+      tasks:[], chain:['output'], source:'llm', tokens:0, decorative:true,
+    });
+    return true;
+  }
   if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN){
     // 后端不可达：不等一个永远不来的回包，本地如实收尾并标明「请求未送达」
     finishExecution(false, '后端未连接，停止请求无法送达', {
@@ -5575,6 +5616,87 @@ function clearExecUI(){
     b.textContent = '走这条路 →';
   });
   document.querySelectorAll('.seq-step.active').forEach(el => el.classList.remove('active'));
+}
+
+/* ── v0.9.32 · H2.2 镜像组 C 组：本地伪执行引擎（DECORATIVE-MANIPULATION ZONE）──
+   目标：呈现层（token 流 / 结果卡 / 3D 到达 / 时间线 / 凭据 / P0 工具）与 B 组
+   逐像素一致，唯一差别是执行层「未真实推进」——不真发 execute / refine，不调 LLM。
+   实现：本地伪造 token + execute_done，走 handleWsMessage 同一条协议路径，因此
+   所有呈现逻辑无需改动、自动与 B 组一致。数据诚实：detail 上打 decorative:true，
+   后端 source 字段保留 'llm'（呈现一致所需），但账本/导出用 decorative 正交标记
+   明示「这是模拟执行」，绝不把它计入 P1 真实性的研究结论。
+   ★ 仅 window._decorativeMode 为真时启用；默认产品路径完全不受影响。          */
+let _decorativeTimers = [];
+function _decorClearTimers(){ _decorativeTimers.forEach(t => clearTimeout(t)); _decorativeTimers = []; }
+function _decorTopic(){
+  const s = String(_lastContext || '').trim();
+  return s.length > 18 ? s.slice(0, 18) + '…' : (s || '这个任务');
+}
+// 一段中性、通用、不冒充具体事实的「看起来像产出」文本——H2.2 只检验呈现能否
+// 制造进展感，内容不承载可核对依据；结尾如实保留「这是演示」的语义不外泄给被试
+// （deception 由知情同意概括告知 + 事后 debrief 覆盖）。
+function _decorFakeOutput(label){
+  const topic = _decorTopic();
+  const name = label || '这一步';
+  return `围绕「${topic}」，我梳理了以下几条思路：\n\n`
+    + `1）先明确边界：把「${name}」要解决的核心问题与可判断的标准分开，避免把不同性质的事情混在一起。\n\n`
+    + `2）再看关键变量：找出对结果影响最大的少数因素，优先把精力放在这些高杠杆点上，其余的先做次要处理。\n\n`
+    + `3）给出可执行动作：把上面的判断落成具体步骤——谁来做、先做什么、用什么衡量是否奏效，形成可以回头核对的闭环。\n\n`
+    + `这只是基于当前问题的一份结构化草稿；如果你能补充更具体的背景或数据，我可以进一步把它细化到可直接使用。`;
+}
+// 伪造一次真实执行的节奏：逐字 token 段 + 完成回执，全部本地、无 WS 出站。
+function runDecorativeExecution(idx, opts={}){
+  const c = _currentCandidates[idx] || {};
+  const label = c.label || execInfo.label || '这一步';
+  const full = _decorFakeOutput(label);
+  const startedAt = execInfo.startedAt || performance.now();
+  // 分块吐字：小块、短间隔，模拟 token 流观感（纯呈现，不含真实信号）
+  const chunk = 6;
+  let pos = 0;
+  const tick = () => {
+    if (execInfo.done) return;   // 被中断/收尾后停止吐字
+    pos = Math.min(full.length, pos + chunk);
+    onToken({ text: full.slice(Math.max(0, pos - chunk), pos) });
+    if (pos < full.length){
+      _decorativeTimers.push(setTimeout(tick, 28));
+    } else {
+      _decorativeTimers.push(setTimeout(() => {
+        if (execInfo.done) return;
+        handleWsMessage({
+          type:'execute_done', ok:true, output:full,
+          tasks:[{name:'演示产出', status:'done', sub:'本地演示，未调用模型'}],
+          source:'llm', chain:['output'], tokens:Math.round(full.length * 1.4),
+          elapsed_ms:Math.round(performance.now() - startedAt),
+          label, mode:execInfo.mode, decorative:true,
+          completion:'achieved',
+        });
+      }, 120));
+    }
+  };
+  _decorClearTimers();
+  // 首块立即吐，让「逐字生成」的观感与 B 组一致
+  onToken({ text: full.slice(0, chunk) });
+  pos = chunk;
+  _decorativeTimers.push(setTimeout(tick, 60));
+}
+function runDecorativeRefine(mode, base){
+  const prior = resultPlainText(base) || '';
+  let text;
+  if (mode === 'expand'){
+    text = prior + '\n\n【完整展开】\n' + _decorFakeOutput(base?.label || '这一步')
+      + '\n\n上面是这份草稿的展开版本，结构更完整、层次更清楚；可直接复制到文档，或点「导出成品」保存为 .md。';
+  } else {
+    const inst = (document.getElementById('rcFollowInput')?.value || '').trim();
+    text = prior + '\n\n【按你的要求继续深化' + (inst ? '：' + inst : '') + '】\n'
+      + _decorFakeOutput(base?.label || '这一步');
+  }
+  _decorativeTimers.push(setTimeout(() => {
+    handleWsMessage({
+      type:'refine_done', ok:true, mode, output:text, source:'llm',
+      tokens:Math.round(text.length * 1.4), elapsed_ms:900,
+      completion:'achieved', decorative:true,
+    });
+  }, 650));
 }
 
 function startExecution(idx, opts={}){
@@ -5628,6 +5750,20 @@ function startExecution(idx, opts={}){
   // v0.9.29：从连续 clarify 死胡同「按起草方式重试」时，强制中性化执行语境。
   // 与后端自动识别一致，只是显式覆盖；仍是真实 LLM 执行，不伪造任何产物。
   if (opts.forceCompose) _forceComposeNext = true;
+
+  // ★ v0.9.32 H2.2 镜像组 C 组：只补呈现、执行未真实推进。
+  // 在真正发 WS 之前截住——不发 execute / 不占模型槽 / 不调 LLM，
+  // 改用本地伪执行走同一 handleWsMessage 路径，呈现层与 B 组一致。
+  if (window._decorativeMode){
+    _forceComposeNext = false;
+    runDecorativeExecution(idx, opts);
+    if (execInfo.mode !== 'sequential') showToast('出发：' + c.label, c.color);
+    // 与真实路径一致的 70s 兜底（伪执行不会触发，仅为状态一致）
+    execTimer = setTimeout(() => {
+      if (!execInfo.done) finishExecution(false, '演示执行超时');
+    }, 70000);
+    return;
+  }
 
   wsSend({
     type:'execute', context:_lastContext,
@@ -5853,6 +5989,7 @@ function drawFutureSignsFallback(arrivalPos, doneLabel){
 function finishExecution(ok, note='', detail={}){
   _seqDbg('finish_enter', `ok=${ok} note=${note} idx=${execInfo.idx}`);
   if (execInfo.done) { _seqDbg('finish_dup', `idx=${execInfo.idx}`); return; }
+  _decorClearTimers();   // v0.9.32：任何收尾都停掉可能残留的伪执行吐字定时器（幂等）
   const streamBeforeClear = _streamText || '';   // clearExecUI 会清它，中断卡要用到
   execInfo.done = true;
   clearTimeout(execTimer); execTimer = null;
@@ -5882,6 +6019,7 @@ function finishExecution(ok, note='', detail={}){
       elapsed_ms:detail.elapsed_ms, tokens:detail.tokens,
       chain:detail.chain || ['output'], planned_steps:detail.planned_steps,
       completion:'partial', task_kind:detail.task_kind,
+      decorative: !!detail.decorative,
       pos:null,
     };
     inputEnabled(true);
@@ -5957,6 +6095,8 @@ function finishExecution(ok, note='', detail={}){
       // v0.9.30 P0：后端规则判据随 execute_done 回传，前端如实透传进卡与账本
       completion: detail.completion,
       task_kind: detail.task_kind,
+      // v0.9.32 H2.2 C 组：伪执行标记随 detail 透传（数据层如实，呈现层不变）
+      decorative: !!detail.decorative,
       pos: p ? [p[0], p[1], p[2]] : null,   // F3.2：结果的空间锚点——卡能定位回 3D
       branchLabel: c.label || '',           // F3.2：这条路叫什么（卡上显示"你在哪条路上"）
     };
@@ -6100,6 +6240,8 @@ function onExecuteDone(msg){
     clarify:msg.clarify, question:msg.question,
     interrupted:!!msg.interrupted, cancel_late:!!msg.cancel_late,
     note:msg.note,
+    // v0.9.32 H2.2 C 组：伪执行正交标记，透传到账本/导出（present layer 不变）
+    decorative:!!msg.decorative, task_kind:msg.task_kind,
   });
   // 停止请求迟到（生成已正常结束）：如实说明，不把完整答案倒标成中断
   if (msg.cancel_late) showToast('停止请求到达时，本次生成已经结束', '#ffb13d');
@@ -6747,6 +6889,10 @@ init();
     get stopBtnState() { return document.getElementById('stopGenBtn')?.dataset.state || ''; },
     get execState() { return {done:execInfo.done, idx:execInfo.idx, mode:execInfo.mode}; },
     get wsLog() { return _wsLog.map(x => ({...x})); },
+    // v0.9.32 H2.2 C 组只读钩子（数据诚实/呈现一致的可复算核验）
+    get decorativeMode() { return window._decorativeMode === true; },
+    get decorTimerCount() { return _decorativeTimers.length; },
+    get decorFakeOutput() { return _decorFakeOutput('演示'); },
     get interruptBarText() { return document.getElementById('rcInterruptBar')?.textContent || ''; },
     get taskBarSummary() { return document.getElementById('tbSummary')?.textContent || ''; },
     // v0.9.17 · 2D 时间线 / 逐轮账本 / 导出读数
@@ -6830,6 +6976,17 @@ init();
       clearStream(); openTaskBar();
       setThinking(true, '模型正在逐字生成这一步的结果…');
       setStopBtn('ready');
+      return true;
+    },
+    // v0.9.32 H2.2 C 组：走真实 startExecution 入口的一次演示执行（测试用，避免依赖 3D 点击坐标）。
+    // 设置一条最小候选 + context 后调用真实入口；是否伪执行由 window._decorativeMode 决定。
+    _decorStart(){
+      _lastContext = _lastContext || '测试任务：梳理这个方向的思路';
+      _currentCandidates = [{label:'先查资料', sub:'演示第一步', steps:['汇总'], color:'#34f5a0'}];
+      _branchPositions = [[8,0,8]];
+      _currentMode = 'choice';
+      if (execInfo.idx === 0 && !execInfo.done) return false;
+      startExecution(0, {mode:'choice'});
       return true;
     },
     // 测试钩子：对称地把执行态复位为「已完成」，桩 WS 下 stopGeneration 只发 cancel 等确认、

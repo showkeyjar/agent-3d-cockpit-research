@@ -9,7 +9,7 @@
 ## 1. 要检验的命题（来自 RESEARCH-PLAN §1）
 
 - **H2.1**：执行层已真实推进（P1 满足）的前提下，补上 P4 呈现（结果卡 + 可核对产物 + 归因）的组，实质进展感显著高于不呈现组。
-- **H2.2**（镜像）：仅补呈现、执行层未真实推进时，进展感不应真正上升（需另设 C 组，本文件 §3 预留）。
+- **H2.2**（镜像）：仅补呈现、执行层未真实推进时，进展感不应真正上升（C 组入口已落地，见 §2c，`?mode=decorative`）。
 
 主指标 = s5（总体实质进展感）；机制指标 = s1–s4（逐一对应 P1–P4）。
 
@@ -32,7 +32,18 @@
 | B0 | 同套结果卡，但结果卡**不**与到达节点 3D 联动（点定位按钮无 3D 响应、到达牌持续发光门控关闭） |
 | B1 | 同套结果卡，**与**到达节点 3D 联动（F3.2 双向锚定，即 v0.9.28 现状） |
 
-B1−B0 差异只能归因于「3D 联动」本身。**B0 已于 v0.9.28 落地**：原型加 `?mode=transparent-nolink`，仅隐藏 `.rc-locate-btn` / `[data-act="3d"]`（CSS）与 `focusArrivalIn3D` / 到达牌持续发光（JS 门控 `window._transparentNoLink`），结果卡本身与其他 P2/P3/P4 呈现层保留。回归脚本 `test_transparent_nolink.js`（6 项）。H2.2 镜像组（只呈现、执行未真实推进）仍待实现——需另设 C 组入口，否则 H2.2 不可检验。
+B1−B0 差异只能归因于「3D 联动」本身。**B0 已于 v0.9.28 落地**：原型加 `?mode=transparent-nolink`，仅隐藏 `.rc-locate-btn` / `[data-act="3d"]`（CSS）与 `focusArrivalIn3D` / 到达牌持续发光（JS 门控 `window._transparentNoLink`），结果卡本身与其他 P2/P3/P4 呈现层保留。回归脚本 `test_transparent_nolink.js`（6 项）。
+
+### 2c. H2.2 镜像组 C 组（只呈现、执行未真实推进，v0.9.32 已落地）
+
+| 组 | 呈现层 | 执行层 | 检验 |
+|----|--------|--------|------|
+| **C 镜像组** | 与 B 组**逐像素一致**（结果卡/凭据/对比/时间线/风景/3D/P0 工具全保留，CSS 不隐藏任何元素） | **本地伪执行**：不发 `execute`/`refine` WS、不调 LLM、不占模型槽；伪造逐字 token 流 + 完成回执，走 `handleWsMessage` 同一协议路径 | H2.2：若 C 组 s5 与 B 组无显著差异，说明「只补呈现」即可虚高进展感 → 呈现层本身在制造假象；若 C 显著低于 B，则真实执行是必要成分 |
+
+- **入口**：`http://127.0.0.1:8770/?mode=decorative`（`window._decorativeMode=true`，`html.mode-decorative`）。实现见 `index.html` 检索 `DECORATIVE-MANIPULATION ZONE`；回归 `test_decorative.js`。
+- **数据诚实（关键）**：伪执行的 `detail.exec.decorative=true` 正交标记，`source` 仍为 `llm`（呈现一致所需，否则 C 组与 B 组视觉不同会破坏操纵）。导出 JSON/CSV 含 `exec_decorative` 列与 `summary.exec_decorative` 计数；成品 .md 带「演示模式/本地模拟」水印。**研究分析必须用 `decorative` 标记把这些轮次单列，绝不计入 P1 真实执行结论；不得用 C 组数据声称执行真实。**
+- **与 A 组差异归因**：A（opaque）隐藏呈现、B/C 呈现相同 → B−A 归因于呈现层有无；C 与 B 呈现相同、执行一真一假 → B−C 归因于执行真实性。两个对照分离 H2.1（呈现效应）与 H2.2（执行真实性效应）。
+- **伦理（deception）**：C 组对被试隐瞒「执行为模拟」，属社会心理学标准 deception 设计。采集工具 `m-instrument.html` 中 C 组**不进随机池**（随机仍 A/B 二分），仅实验员手动覆盖选用；须在知情同意中概括告知「部分条件下系统行为可能被模拟」，任务结束后 **debrief 告知真实分组与模拟性质**。记录 `arm=C`、`arm_override=true`，分析时单列。
 
 ---
 
@@ -98,7 +109,7 @@ B1−B0 差异只能归因于「3D 联动」本身。**B0 已于 v0.9.28 落地*
 
 ```
 pid            string   随机或录入的唯一编号
-arm            'A'|'B'|'B0'|'B1'
+arm            'A'|'B'|'B0'|'B1'|'C'   (C=H2.2 deception 镜像组，见 §2c；单列分析)
 arm_override   bool    是否手动覆盖随机分配（true 会引入偏倚，分析时排除）
 task_type      'draft'|'data_with_input'|'data_missing_input'
 s1..s5         int 1..7 测「进展是否真实」
@@ -154,11 +165,12 @@ ts             ISO8601 填写时间
 
 ## 11. 复现清单（实验员逐步）
 
-1. 启动服务：`8770` uvicorn（后端直出静态页）+ `8083` llama-server（唯一主力模型）；确认 `8083/health=200` 且槽空闲（单槽，勿并发）。
+1. 启动服务：`8770` uvicorn（后端直出静态页）+ `8083` llama-server（唯一主力模型）；确认 `8083/health=200` 且槽空闲（单槽，勿并发）。注：C 组为本地伪执行，不占 `8083` 槽，可与 A/B 组共用服务。
 2. 实验员浏览器打开 `tools/m-instrument.html`。
-3. 被试知情同意 → 自动分配 arm → 按提示打开对应原型 URL + 任务脚本。
+3. 被试知情同意 → 自动分配 arm（A/B 二分）→ 按提示打开对应原型 URL + 任务脚本。
 4. 出声思维执行任务 → 填量表 → 访谈。
-5. 导出 JSON/CSV → 批量归集 → 按 §8 分析 → 填 §9 M3 清单。
+5. **C 组（H2.2，实验员手动覆盖）**：知情同意须概括告知「部分条件下系统行为可能被模拟」→ 手动点「改为 C」→ 打开 `?mode=decorative` → 完成任务 → **先填量表**（关键：deception 组的 s1–s7 必须在 debrief **之前**采集，否则被试知晓「执行是假的」后量表会被污染）→ 量表提交后 **debrief：明确告知该组执行为本地模拟、未调用模型，解释 deception 目的，并给被试退出数据权**。记录自然带 `arm=C`、`arm_override=true`。
+6. 导出 JSON/CSV → 批量归集 → 按 §8 分析（C 组单列，B−C 检验 H2.2）→ 填 §9 M3 清单。
 
 ---
 

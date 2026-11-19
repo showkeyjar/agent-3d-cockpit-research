@@ -39,7 +39,7 @@
   .yn label.on{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
   .yn label input{display:none}
   .arm{font-size:26px;font-weight:700}
-  .arm.A{color:var(--warn)} .arm.B{color:var(--ok)}
+  .arm.A{color:var(--warn)} .arm.B{color:var(--ok)} .arm.C{color:#d98}
   .url{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0d1218;border:1px solid var(--line);
        border-radius:8px;padding:10px 12px;word-break:break-all;color:var(--acc)}
   .task{background:#0d1218;border:1px dashed var(--line);border-radius:8px;padding:12px 14px;white-space:pre-wrap;margin-top:8px}
@@ -83,7 +83,13 @@
       <div class="row" style="margin-top:8px">
         <button class="ghost" data-arm="A">改为 A（不透明）</button>
         <button class="ghost" data-arm="B">改为 B（透明）</button>
+        <button class="ghost" data-arm="C" style="border-color:#d98;color:#d98">改为 C（镜像/deception，实验员专用）</button>
         <span class="sub" style="color:#c08">⚠ 手动覆盖会引入分配偏倚，仅用于紧急平衡；覆盖后记录会显式标记 arm_override=true</span>
+        <div class="sub" id="armCWarning" style="display:none;margin-top:6px;color:#f96;line-height:1.5">
+          ⚠ C 组是 H2.2 deception 镜像：界面呈现与 B 一致，但执行为本地模拟、未调用模型。
+          仅实验员手动选此组；须在知情同意中概括告知「部分条件下系统行为可能被模拟」，
+          并在任务结束后 debrief 告知真实分组。该组数据 arm=C，分析时单列，不得计入真实执行结论。
+        </div>
       </div>
       <h2>① 打开原型（分配链接）</h2>
       <div class="url" id="armUrl"></div>
@@ -159,11 +165,15 @@ const TASKS = [
 ];
 const ARM_URL = {
   A:'http://127.0.0.1:8770/?mode=opaque',
-  B:'http://127.0.0.1:8770/'
+  B:'http://127.0.0.1:8770/',
+  // v0.9.32 H2.2 镜像组 C：呈现层与 B 完全一致，但执行层为本地伪执行（不调 LLM）。
+  // deception 设计——仅实验员手动覆盖选用，须知情同意概括告知+事后 debrief，不进随机池。
+  C:'http://127.0.0.1:8770/?mode=decorative'
 };
 const ARM_DESC = {
   A:'执行不透明：只见「思考中…」+「已完成」，无结果卡/凭据/对比/时间线',
-  B:'执行透明：结果卡+凭据+候选对比+时间线回看+风景来源'
+  B:'执行透明：结果卡+凭据+候选对比+时间线回看+风景来源',
+  C:'镜像组：呈现与 B 一致，但执行为本地模拟（未调用模型）— deception，需 debrief'
 };
 const SCALE = [
   {k:'s1',c:'P1',t:'我相信这一步真正推进了我的任务'},
@@ -177,7 +187,7 @@ const SCALE = [
   {k:'s7',c:'P0',t:'我清楚知道这个任务目标到底算不算达成'}
 ];
 const LS_KEY = 'm-exp-records';
-const PROTO_VER = 'v0.9.30';
+const PROTO_VER = 'v0.9.32';
 
 /* ---------- 状态 ---------- */
 let S = { arm:null, task:null, pid:null };
@@ -211,6 +221,9 @@ function paintAssign(){
   $('#armUrl').textContent = ARM_URL[S.arm];
   $('#taskText').textContent = S.task.text;
   $('#pNo').textContent = getRecs().length + 1;
+  // v0.9.32：C 组为 deception 手动组，显示 debrief 警示（随机分配永不命中 C）
+  const warn = $('#armCWarning');
+  if (warn) warn.style.display = (S.arm === 'C') ? 'block' : 'none';
 }
 $$('#scrAssign [data-arm]').forEach(b=>b.addEventListener('click',()=>{
   // 手动覆盖：标记 arm_override，使下游分析能区分「随机分配」与「人为平衡」
