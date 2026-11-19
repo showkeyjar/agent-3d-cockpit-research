@@ -7,6 +7,17 @@ const EXE = resolveChromePath();
 const URL = 'http://127.0.0.1:8770/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// v0.9.32 时序修复：driveTo 的 Promise resolve 后，F3.6b 行驶颠簸
+//   (animate: isDriving 时 camera.position.y += sin(t*18)*bob) 可能仍在最后一帧里，
+//   导致 eyeY 在 1.30~1.34 抖动、offRail 断言漂移。落位本身是瞬时的（无阻尼收敛），
+//   真正的收敛信号是 isDriving=false。等它稳定后再等两帧渲染循环应用非颠簸位置。
+//   注意：等的是「行驶状态」信号，不是 eyeY 断言值本身——不构成循环论证。
+async function settle(page) {
+  await page.waitForFunction(() => window.__cockpit && window.__cockpit.isDriving === false,
+    null, { timeout: 15000 });
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
 let pass = 0, fail = 0;
 function ok(name, cond, extra) {
   if (cond) { pass++; console.log('  ok  ' + name); }
@@ -37,7 +48,7 @@ async function main() {
     const waypoints = [[12, 0, 0], [12, 0, 12], [4, 0, 12]];
     for (const wp of waypoints) {
       await page.evaluate(async (w) => { await window.__cockpit._driveTo(w); }, wp);
-      await sleep(120);
+      await settle(page);   // 等行驶结束 + 颠簸停 + 两帧渲染；替代旧 sleep(120) 的时序竞态
       const p = await page.evaluate(() => window.__cockpit.railCameraProbe());
       ok('行驶到 ' + JSON.stringify(wp) + ' 后机位贴轨 camOffRail≈0', p.offRail < 1e-3, p);
       ok('  眼位钉死 1.35m', Math.abs(p.eyeY - 1.35) < 0.06, p.eyeY);
