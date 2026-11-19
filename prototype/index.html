@@ -396,6 +396,34 @@
   #sendBtn:hover{background:rgba(94,224,255,.25);}
   #sendBtn:disabled{opacity:.3;cursor:not-allowed;}
 
+  /* ── clarify 底部悬浮回答条：贴在输入框正上方（视线焦点），模型索要输入时才出现 ── */
+  #clarifyDock{position:fixed;bottom:78px;left:50%;transform:translateX(-50%);
+    width:560px;max-width:92vw;pointer-events:auto;z-index:14;
+    padding:12px 14px;border-radius:12px;
+    border:1px solid rgba(94,224,255,.55);
+    background:rgba(8,22,30,.94);backdrop-filter:blur(20px);
+    box-shadow:0 8px 34px rgba(0,0,0,.55),0 0 0 1px rgba(94,224,255,.1);
+    animation:cdIn .28s cubic-bezier(.2,.8,.3,1);}
+  @keyframes cdIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+  .cd-q{display:flex;align-items:flex-start;gap:8px;margin-bottom:9px;
+    font-size:12px;line-height:1.55;color:#dff6ff;}
+  .cd-badge{flex:none;width:18px;height:18px;border-radius:50%;display:inline-flex;
+    align-items:center;justify-content:center;font-weight:700;font-size:12px;
+    background:rgba(94,224,255,.18);color:#8fe6ff;border:1px solid rgba(94,224,255,.5);}
+  #cdQuestion{word-break:break-word;}
+  .cd-row{display:flex;gap:8px;}
+  #dockAnswerInput{flex:1;min-width:0;padding:9px 12px;border-radius:7px;
+    border:1px solid rgba(94,224,255,.38);background:rgba(94,224,255,.07);
+    color:#eafff6;font-size:13px;font-family:inherit;outline:none;
+    transition:border-color .15s,box-shadow .15s;}
+  #dockAnswerInput::placeholder{color:#5a7a92;}
+  #dockAnswerInput:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(94,224,255,.16);}
+  #dockAnswerBtn{flex:none;padding:9px 18px;border-radius:7px;cursor:pointer;
+    font-size:13px;font-family:inherit;font-weight:700;border:none;
+    background:var(--cyan);color:#03121a;white-space:nowrap;transition:opacity .15s;}
+  #dockAnswerBtn:hover{opacity:.85;}
+  #dockAnswerBtn:disabled{opacity:.3;cursor:not-allowed;}
+
   /* ── 图例：过去 / 未来 / 现在 ── */
   #legend{position:fixed;left:16px;bottom:16px;z-index:10;pointer-events:none;
     background:rgba(8,12,28,.55);border:1px solid var(--border);border-radius:10px;
@@ -1025,6 +1053,16 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <button class="spd" data-s="0.5">慢</button>
     <button class="spd active" data-s="1">中</button>
     <button class="spd" data-s="2">快</button>
+  </div>
+</div>
+
+<!-- clarify 底部悬浮回答条：模型索要输入时，把「作答」放到用户视线焦点（输入框上方），
+     而非藏在右上角结果卡里。与结果卡共用同一提交逻辑，结果卡本体与 3D 不变量不动。 -->
+<div id="clarifyDock" style="display:none;">
+  <div class="cd-q"><span class="cd-badge">?</span><span id="cdQuestion">模型需要你的输入</span></div>
+  <div class="cd-row">
+    <input type="text" id="dockAnswerInput" placeholder="在这里回答模型的问题…" maxlength="400" autocomplete="off" />
+    <button type="button" id="dockAnswerBtn">回答 →</button>
   </div>
 </div>
 
@@ -3738,6 +3776,7 @@ function setArrivalHints(activeSign){
 function hideResultCard(){
   document.getElementById('resultCard').classList.remove('show');
   const _guide = document.getElementById('rcClarifyGuide'); if (_guide) _guide.style.display = 'none';
+  const _dock = document.getElementById('clarifyDock'); if (_dock) _dock.style.display = 'none';
   _activeArrivalSign = null;
   setArrivalBeam(null);
   setArrivalHints(null);   // 所有到达牌回到「可展开」态
@@ -3803,6 +3842,8 @@ function showResultCard(d){
   const _guideReset = document.getElementById('rcClarifyGuide'); if (_guideReset) _guideReset.style.display = 'none';
   document.getElementById('rcQuestionBig').style.display = 'none';
   document.getElementById('rcInputRow').style.display = 'none';
+  // v0.9.33：底部悬浮回答条每次开卡先复位（仅 clarify 分支会重新显示）
+  const _dockReset = document.getElementById('clarifyDock'); if (_dockReset) _dockReset.style.display = 'none';
   // v0.9.30：P0 交付/深化区与达成度条在每次开卡时先复位，避免澄清卡/中断卡
   // 因提前 return 而残留上一次的显示态。
   const _deliverReset = document.getElementById('rcDeliver'); if (_deliverReset) _deliverReset.style.display = 'none';
@@ -3955,25 +3996,42 @@ function showResultCard(d){
       const el = document.getElementById(id); if (el) el.style.display = 'none';
     });
 
-    const input = document.getElementById('rcAnswerInput');
-    input.value = '';
-    const btn = document.getElementById('rcAnswerBtn');
-    btn.disabled = false;
-    // 用赋值而非 addEventListener，避免重复进入把同一事件叠两层
-    btn.onclick = () => {
-      const ans = (input.value || '').trim();
-      if (!ans){ input.focus(); return; }
+    // v0.9.33：两个作答入口（右上结果卡 + 底部悬浮条）共用同一提交逻辑，
+    //   都把答案拼进 _lastContext → 复用当前候选真实第二轮执行。不新增完成信号。
+    const doSubmit = (readAns, focusEl) => {
+      const ans = (readAns() || '').trim();
+      if (!ans){ focusEl.focus(); return; }
       const q = document.getElementById('rcQuestionBig').textContent || _lastContext;
       _lastContext = (_lastContext || '') + `\n\n[用户补充]\n模型问：${q}\n用户答：${ans}`;
-      hideResultCard();
+      hideResultCard();                   // 同时隐藏右上卡与底部 dock
       if (typeof d.idx === 'number' && d.idx >= 0 && _currentCandidates[d.idx]){
         startExecution(d.idx);            // 复用当前候选 → 真实第二轮 LLM 调用
       } else {
         runForecast(_lastContext);        // 退化：直接以原问题重新推演
       }
     };
+
+    // 入口 1：右上角结果卡里的输入框（保留，兼容既有习惯与回归）
+    const input = document.getElementById('rcAnswerInput');
+    input.value = '';
+    const btn = document.getElementById('rcAnswerBtn');
+    btn.disabled = false;
+    btn.onclick = () => doSubmit(() => input.value, input);
     input.onkeydown = (e) => { if (e.key === 'Enter'){ e.preventDefault(); btn.click(); } };
-    setTimeout(() => input.focus(), 60);
+
+    // 入口 2：底部输入框正上方的悬浮回答条（视线焦点，解决「右上角太隐蔽」）
+    const dock = document.getElementById('clarifyDock');
+    const dockInput = document.getElementById('dockAnswerInput');
+    const dockBtn = document.getElementById('dockAnswerBtn');
+    if (dock && dockInput && dockBtn){
+      document.getElementById('cdQuestion').textContent = qText;  // 问题摘要同步
+      dockInput.value = '';
+      dockBtn.disabled = false;
+      dock.style.display = 'block';
+      dockBtn.onclick = () => doSubmit(() => dockInput.value, dockInput);
+      dockInput.onkeydown = (e) => { if (e.key === 'Enter'){ e.preventDefault(); dockBtn.click(); } };
+      setTimeout(() => dockInput.focus(), 60);   // 作答框直接聚焦，用户可立刻打字
+    }
 
     // 动作区：不放「重试 / 回退」等完成态按钮，只放一个轻量的「放弃」入口
     const acts = document.getElementById('rcActions');
@@ -7264,6 +7322,25 @@ init();
       };
     },
     get clarifyStreak(){ return _clarifyStreak; },
+    get lastContextText(){ return _lastContext || ''; },   // 只读：验证回答是否拼进上下文
+    // v0.9.33：底部悬浮回答条状态（位置/可见性/文本），供回归断言
+    get clarifyDock(){
+      const d = document.getElementById('clarifyDock');
+      const inp = document.getElementById('dockAnswerInput');
+      if (!d) return null;
+      const r = d.getBoundingClientRect();
+      const bar = document.getElementById('inputBar');
+      const br = bar ? bar.getBoundingClientRect() : null;
+      return {
+        shown: d.style.display === 'block',
+        question: (document.getElementById('cdQuestion') || {}).textContent || '',
+        rect: { top: Math.round(r.top), bottom: Math.round(r.bottom),
+                left: Math.round(r.left), width: Math.round(r.width) },
+        inputBarTop: br ? Math.round(br.top) : null,
+        aboveInputBar: br ? r.bottom <= br.top + 1 : false,
+        focused: document.activeElement === inp,
+      };
+    },
     // v0.9.30 P0 结果可用性回归钩子
     get completion(){
       const d = _activeCardDetail || {};
