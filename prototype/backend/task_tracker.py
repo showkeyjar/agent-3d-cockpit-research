@@ -704,12 +704,23 @@ class AgentExecutor:
         返回 {"ok","output","source","completion","reason","tokens",
               "elapsed_ms","mode","note","interrupted?"}。
         """
-        mode = mode if mode in ("expand", "followup") else "expand"
+        mode = mode if mode in ("expand", "followup", "synthesize") else "expand"
         t0 = time.monotonic()
         tokens_est = 0
         parts_out: List[str] = []
 
-        if mode == "expand":
+        if mode == "synthesize":
+            # v0.9.35 发现1：把多轮真实产出综合成一份可直接交付的终版。
+            # prior_output 由前端收集所有 source=llm 的 done 轮原文传入，后端只做综合，
+            # 不引入素材外的新事实（严禁编造）——综合 ≠ 新生成。
+            task_line = (
+                "用户最初要的是：" + (context or "") + "\n"
+                "下面是这次旅程中分多轮真实拿到的成果（逐轮原文，可能有重复/不同侧面）：\n"
+                "---\n" + (prior_output or "") + "\n---\n"
+                "请把以上真实成果综合成一份完整、去重、结构清晰的最终答案，"
+                "作为用户可以直接带走的终版。"
+            )
+        elif mode == "expand":
             task_line = (
                 "用户最初要的是：" + (context or "") + "\n"
                 "之前只给了一份简短要点（这是模型真实产出）：\n"
@@ -725,9 +736,8 @@ class AgentExecutor:
                 "基于上面的真实成果，按用户要求继续深化/改写。"
             )
 
-        final_prompt = (
-            task_line
-            + "\n硬性要求：\n"
+        hard_rules = (
+            "\n硬性要求：\n"
             "1. 直接给出完整成果本身，不要复述任务、不要客套、不要写「以下是」。\n"
             "2. 产物要能直接用：起草类给可照做的分条内容，分析类给结论+依据+建议。\n"
             "3. 400字以上、800字以内，用清晰的编号或小标题分块。\n"
@@ -735,6 +745,17 @@ class AgentExecutor:
             "5. 严禁编造你不知道的具体数字或事实；确实缺外部数据时，"
             "在正文后用一行写 [达成度: 待补输入] 并说明缺什么，其余情况不要写这行。"
         )
+        if mode == "synthesize":
+            # 综合模式：不追求字数下限（素材可能本就短），核心是「只用素材 + 去重」。
+            hard_rules = (
+                "\n硬性要求：\n"
+                "1. 直接给出综合后的最终答案本身，不要客套、不要写「以下是综合结果」。\n"
+                "2. 只使用上面逐轮原文里出现过的信息与结论，不得引入素材之外的数字、事实或新观点；"
+                "同一内容合并一次，不同侧面按逻辑组织，矛盾处并列保留并标注「两种说法」。\n"
+                "3. 结构清晰、可直接交付：起草类给分条可执行内容，分析类给结论+依据+建议。\n"
+                "4. 字数以说清为准，不强行凑数；禁止网址、链接、域名；不要把任务推回给用户。"
+            )
+        final_prompt = task_line + hard_rules
 
         def interrupted_result() -> Dict:
             partial = "".join(parts_out).strip()

@@ -89,3 +89,56 @@
   `showResultCard` 渲染与复位、复制/导出/展开/追问函数、WS 三分支、`recordRun` 写回 seq、
   导出扩字段、P0 测试钩子）。
 - 测试：`test_p0_backend.py`、`test_p0_frontend.js`。
+
+---
+
+## 7. 二轮审查：从「拿到单轮成果」到「拿到可用终版」（v0.9.35）
+
+> 2026-11-19 系统审查。方法：全链路走查「提问 → 推演方向 → 执行 → 拿结果 → 核对/带走/深化 → 多轮形成终版」，
+> 逐个定位「声称 vs 实际」断点。三条均有代码铁证，且不在 §1–§6 已修清单内。
+> 明确区分：前端 completion fallback（`index.html` 与后端 `judge_completion` 判据有差异）经核对
+> **不是断点**——后端强制下发 completion、正常路径不触发兜底，两处等价，故不改。
+
+### 断点 A（中高）：refine 完整成果成孤岛
+
+- **铁证**：`onRefineDone` 只写 `_arrivalResults.set(-2, refineDetail)`；到达牌
+  `sign.userData.arrivalDetail`（`addArrivalMarker`）与主轴节点 `journey[].arrivalDetail`
+  仍指向旧 150 字摘要对象；结果卡联动按引用匹配 `arrivalDetail === d` 对新 detail 失败。
+- **后果**：用户「展开完整成果」拿到 400–800 字终版后关掉卡，再从 3D 到达牌/里程碑点开，
+  看到的还是旧摘要——完整成果带不走、回不到主线。
+- **修复**：refine 成功后把到达牌/主轴节点的数据引用同步到 refineDetail 并重铺里程碑文字；
+  ★ 只改数据引用，**不新铺到达牌、不改机位/轨道、不动账本历史**（账本已有 refine 独立轮）。
+- **验证**：`test_refine_sync.js` 10/10（含 3D 重开仍是完整成果、牌数不变、账本 +1）。
+
+### 断点 B（中，真 bug）：达成度与「有无产出」判据打架
+
+- **铁证**：`showResultCard` 的 `looksLikeLog = /^已(检索|生成|整理|输出|校验)/.test(raw) || raw.length < 8`
+  使 `hasReal=false`；但后端 `completion=achieved` 优先采纳 → 同一张卡既显示「目标达成」，
+  正文又说「这次没有拿到模型生成的答案」，复制/导出工具被隐藏。
+- **根因**：`looksLikeLog` 是路线 A 剧场的失效残留——路线 B 的 `HONEST_FALLBACK`
+  早已无「已检索」文案；该正则会误伤真实 LLM 的短答案（如「用方案A」）
+  与以「已生成…」开头的正文。
+- **修复**：`hasReal` 与后端 `judge_completion`（`task_tracker.py:94`）统一判据：
+  `ok && source==='llm' && output非空 && 非 '[' 开头`，删除失效正则。
+- **验证**：`test_completion_consistency.js` 16/16（短答案/「已生成」答案一致，
+  local 失败/clarify/`[`开头仍如实无产出）。
+
+### 断点 C（中）：多轮成果只有拼接、没有可交付终版
+
+- **铁证**：`exportAllDeliverables` 仅对真实轮逐条 `lines.push` 拼接，无综合/去重/终版标记；
+  要点版 + 展开版 + 各次追问全文一并堆入，用户不知用哪一版。
+- **修复**：新增 `synthesize` 模式——把全部真实轮次原文作素材，经独立 refine 通道
+  （真调 LLM，`mode=synthesize`）综合去重成一份终版；明确 prompt 纪律「只用素材、不引入新事实、
+  矛盾并列保留」，成果标 `synthesized:true` 入账本、可复制/导出；不碰执行主链/3D/机位。
+  素材只取 `done && llm && !decorative && output非空`，去重；C 组 decorative 轮不混入。
+- **验证**：前端 `test_synthesize.js` 17/17（素材过滤/去重、WS 契约、synthDetail 标记、
+  不新铺牌）；后端 `test_synthesize_backend.py` 5/5（真实 LLM 产出 318 字、mode 保留、
+  不碰主链）。
+
+### 对研究结论的影响
+
+- P0「结果可用性」从「单轮可带走」扩到「多轮可汇成一份终版」，四断点修复后的能力更完整；
+- P1 账本新增 `synthesize` 与 `refine` 两类二次生成轮（chain 明确标记、synthesize 无单一父轮），
+  研究分析须把它们与「首次执行轮」分开统计，不得混作 P1 真实执行证据；
+- 二轮审查再次印证主线判断：真问题集中在「结果 → 可用终版」链路与判据一致性，
+  而非呈现层加码（与 EVIDENCE.md 结论一致）。

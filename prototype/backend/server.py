@@ -796,9 +796,11 @@ async def run_refine(conn: WSConnection, data: dict):
     契约：无论成功/忙/中断/失败，都回一条 refine_done，绝不静默挂起。
     """
     context = str(data.get("context") or conn.context or "")[:600]
-    prior = str(data.get("prior_output") or "")[:1200]
+    mode = data.get("mode") if data.get("mode") in ("expand", "followup", "synthesize") else "expand"
+    # v0.9.35 synthesize：素材是所有真实轮次原文，放宽上限；其余模式维持 1200。
+    _prior_cap = 8000 if mode == "synthesize" else 1200
+    prior = str(data.get("prior_output") or "")[:_prior_cap]
     instruction = str(data.get("instruction") or "")[:300]
-    mode = data.get("mode") if data.get("mode") in ("expand", "followup") else "expand"
     task_kind = data.get("task_kind")
     if task_kind not in ("compose", "analysis", "general"):
         task_kind = ""

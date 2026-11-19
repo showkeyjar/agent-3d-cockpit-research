@@ -1020,6 +1020,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <button type="button" id="tlExportJson" class="primary" title="导出逐轮完整凭据（研究数据）">导出 JSON</button>
     <button type="button" id="tlExportCsv" title="导出平坦字段，便于量表统计">导出 CSV</button>
     <button type="button" id="tlExportDeliver" title="v0.9.31：把本次旅程所有真实成果汇总成一份可带走的 .md（区别于研究数据导出）">汇总成果 .md</button>
+    <button type="button" id="tlSynthesize" title="v0.9.35：把所有真实成果综合成一份可直接交付的最终答案（真实再次生成，非逐轮拼接）">✦ 生成综合答案</button>
     <button type="button" id="tlClose" title="关闭">×</button>
   </div>
   <div class="tl-strip" id="tlStrip"></div>
@@ -2323,6 +2324,7 @@ const CLARIFY_STREAK_GUIDE = 2;
 // 独立 execute 主链。_refineOpenDetail 记当前正在深化的那张卡的数据对象。
 let _refineBusy = false;
 let _refineOpenDetail = null;
+let _synthPending = false;   // v0.9.35：下一次 refine_done 是「多轮综合答案」，非单卡深化
 const COMPLETION_META = {
   achieved:   { text:'目标达成', color:'#34f5a0', bg:'rgba(52,245,160,.10)' },
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
@@ -4163,8 +4165,13 @@ function showResultCard(d){
   // 产出：有真实模型内容才显示正文；否则如实说明「没有产生成果」，
   // 不再出现「本地执行流程」这类暗示做过事的旧剧场措辞。
   const raw = escText(d.output).trim();
-  const looksLikeLog = /^已(检索|生成|整理|输出|校验)/.test(raw) || raw.length < 8;
-  const hasReal = !!d.ok && d.source === 'llm' && !!raw && !looksLikeLog;
+  // v0.9.35：判据必须与后端 judge_completion(task_tracker.py:94) 同源——
+  //   ok && source==='llm' && output 非空 && 不以 '[' 开头。
+  // 旧 looksLikeLog 正则（/^已(检索|生成…)/ || length<8）是路线 A 剧场残留：
+  // 路线 B 的 HONEST_FALLBACK 早已无「已检索」文案，该正则会把真实 LLM 的短答案
+  // （如「用方案A」）或以「已生成…」开头的正文误判为无产出 → 正文说「没有成果」
+  // 而 completion=achieved 说「目标达成」，自相矛盾。删除该正则，统一判据。
+  const hasReal = !!d.ok && d.source === 'llm' && !!raw && !raw.startsWith('[');
   document.getElementById('rcOutput').textContent = hasReal
     ? raw
     : (d.ok
@@ -4403,6 +4410,8 @@ function onRefineAck(msg){
 }
 function onRefineDone(msg){
   _refineBusy = false;
+  const isSynth = (_synthPending || msg.mode === 'synthesize');
+  _synthPending = false;
   const box = document.getElementById('rcRefining');
   if (box) box.style.display = 'none';
   const btnE = document.getElementById('rcExpandBtn');
@@ -4410,38 +4419,43 @@ function onRefineDone(msg){
   if (btnE) btnE.disabled = false;
   if (btnF) btnF.disabled = false;
 
-  const base = _refineOpenDetail || _activeCardDetail;
+  // synthesize 是多轮综合，无单一被深化的卡；其余模式沿用当前卡为 base
+  const base = isSynth ? null : (_refineOpenDetail || _activeCardDetail);
   if (!msg.ok){
-    showToast(msg.note || '这次深化没有拿到成果，原结果保留', '#ffb13d');
+    showToast(msg.note || (isSynth ? '综合生成没有拿到成果' : '这次深化没有拿到成果，原结果保留'), '#ffb13d');
     return;
   }
   const prior = resultPlainText(base);
   const out = String(msg.output || '').trim();
   if (!out){ showToast('模型这次没有返回新内容，原结果保留', '#ffb13d'); return; }
 
-  // 把深化后的完整成果作为新一轮进 P1 账本，父轮指向被深化的那轮 → 追问链。
-  // 不铺到达牌、不改 3D 机位：深化是结果卡内的事，符合「2D 不劫持 3D」纪律。
-  // 父轮定位：优先用 recordRun 写回 detail 的 seq（最准），退化按 output 匹配。
-  const seqOfBase = (base && Number.isInteger(base.seq))
+  // 把生成后的成果作为新一轮进 P1 账本。
+  // expand/followup：父轮指向被深化的那轮 → 追问链；
+  // synthesize：多轮综合，不指向单一父轮（parentSeq=null），但 chain 明确标记来源。
+  // 不铺到达牌、不改 3D 机位：都是结果卡内的事，符合「2D 不劫持 3D」纪律。
+  const seqOfBase = (!isSynth && base && Number.isInteger(base.seq))
     ? base.seq
-    : (_runs.find(r => r.output === prior)?.seq) || null;
+    : (!isSynth ? (_runs.find(r => r.output === prior)?.seq) || null : null);
   _forkCtx = seqOfBase ? { parentRunId: null, parentSeq: seqOfBase,
                            label: msg.mode === 'expand' ? '展开完整成果' : '继续深化',
                            matched: true } : null;
   const refineDetail = {
-    ok:true, mode: base?.mode || 'choice',
-    label: msg.mode === 'expand' ? '展开完整成果' : '继续深化',
-    title: msg.mode === 'expand' ? '完整成果' : '深化后的成果',
-    context: base?.context || '',
+    ok:true, mode: isSynth ? 'synthesize' : (base?.mode || 'choice'),
+    label: isSynth ? '综合最终答案' : (msg.mode === 'expand' ? '展开完整成果' : '继续深化'),
+    title: isSynth ? '综合最终答案' : (msg.mode === 'expand' ? '完整成果' : '深化后的成果'),
+    context: isSynth ? String(_lastContext || '') : (base?.context || ''),
     output: out, source: msg.source, reason: '',
     elapsed_ms: msg.elapsed_ms, tokens: msg.tokens,
-    chain: ['refine:' + msg.mode],
+    chain: [isSynth ? 'synthesize' : ('refine:' + msg.mode)],
     completion: msg.completion, self_rating: msg.self_rating,
-    note: msg.decorative ? '演示模式：本地展开，未调用模型' : '基于上一轮真实成果再次生成',
-    decorative: !!msg.decorative || !!base?.decorative,
+    note: isSynth
+      ? (msg.decorative ? '演示模式：本地模拟综合，未调用模型' : '综合本次旅程全部真实成果生成，非逐轮原文拼接')
+      : (msg.decorative ? '演示模式：本地展开，未调用模型' : '基于上一轮真实成果再次生成'),
+    synthesized: !!isSynth,
+    decorative: !!msg.decorative || (base && !!base.decorative),
     count: 1, tasks: [],
-    pos: base?.pos || null,
-    branchLabel: base?.branchLabel || '',
+    pos: isSynth ? null : (base?.pos || null),
+    branchLabel: isSynth ? '' : (base?.branchLabel || ''),
     refine_pending: true,
   };
   recordRun(refineDetail, 'done');
@@ -4449,8 +4463,35 @@ function onRefineDone(msg){
   // 结果卡就地更新为完整成果（still 同一张卡，不新铺 3D 到达牌）
   _activeCardDetail = refineDetail;
   _arrivalResults.set(-2, refineDetail);
+
+  // v0.9.35 修复「完整成果成孤岛」：refine 只写了 _arrivalResults(-2)，
+  // 到达牌 userData.arrivalDetail(5375) 与主轴节点 arrivalDetail(6205) 仍指向旧摘要，
+  // 关掉卡后从 3D 到达牌 / 里程碑点开的还是 150 字要点版。此处把它们的数据引用
+  // 同步到完整成果，并重铺里程碑文字。★ 只改数据引用 + 重绘文字，
+  // 不新铺到达牌、不改机位 / 轨道、不动账本历史（账本已有 refine 独立轮）。
+  if (base){
+    for (const s of branchSigns){
+      if (s.userData && s.userData.branchId === -2 && s.userData.arrivalDetail === base)
+        s.userData.arrivalDetail = refineDetail;
+    }
+    // 退化：引用相等失败时（如从账本点开的卡），按空间锚点 xz 精确定位同一块牌
+    if (Array.isArray(refineDetail.pos)){
+      for (const s of branchSigns){
+        if (!s.userData || s.userData.branchId !== -2) continue;
+        const ad = s.userData.arrivalDetail;
+        if (ad && Array.isArray(ad.pos) && ad.pos[0] === refineDetail.pos[0]
+            && ad.pos[2] === refineDetail.pos[2]) { s.userData.arrivalDetail = refineDetail; break; }
+      }
+    }
+    for (let i = journey.length - 1; i >= 0; i--){
+      if (journey[i].arrivalDetail === base){ journey[i].arrivalDetail = refineDetail; break; }
+    }
+    try { rebuildMilestones(); } catch(e){ /* 3D 未就绪时不影响结果卡本体 */ }
+  }
+
   showResultCard(refineDetail);
-  showToast(msg.mode === 'expand' ? '已展开为完整成果，可复制或导出' : '已按你的要求深化', '#34f5a0');
+  showToast(isSynth ? '已生成综合最终答案，可复制或导出'
+            : (msg.mode === 'expand' ? '已展开为完整成果，可复制或导出' : '已按你的要求深化'), '#34f5a0');
 }
 
 // 事件绑定（showResultCard 每次渲染只改显隐，不重复绑定）
@@ -5168,6 +5209,48 @@ function exportAllDeliverables(){
 }
 
 document.getElementById('tlExportDeliver')?.addEventListener('click', exportAllDeliverables);
+document.getElementById('tlSynthesize')?.addEventListener('click', startSynthesize);
+
+/* ── v0.9.35 发现1：把多轮真实成果综合成一份可直接交付的终版 ──────────
+   与「汇总成果 .md」（逐轮原文拼接）不同：这里把所有真实轮次的产出作为素材，
+   经独立 refine 通道（mode=synthesize，真调 LLM）综合、去重成一份最终答案。
+   纪律：素材只取 status=done && source=llm && !decorative && output 非空的轮次；
+   综合结果标注 synthesized:true，入账本为独立轮，可复制/导出；不碰执行主链/3D/机位。 */
+function collectRealOutputs(){
+  const seen = new Set();
+  const out = [];
+  for (const r of _runs){
+    if (r.status !== 'done' || r.exec?.source !== 'llm' || r.exec?.decorative) continue;
+    const t = String(r.output || '').trim();
+    if (!t || seen.has(t)) continue;           // 去重：同一成果多轮/要点+展开不重复喂
+    seen.add(t);
+    out.push({ seq:r.seq, output:t, label:r.label || '' });
+  }
+  return out;
+}
+function startSynthesize(){
+  if (_refineBusy){ showToast('上一次生成还在进行中', '#ffd23f'); return; }
+  const parts = collectRealOutputs();
+  if (parts.length < 1){ showToast('本次旅程还没有可综合的真实成果', '#ffb13d'); return; }
+  if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN){
+    showToast('后端未连接，无法生成综合答案', '#ffb13d'); return;
+  }
+  const prior = parts.map((p,i) => `【第${i+1}轮·${p.label}】\n${p.output}`).join('\n\n').slice(0, 8000);
+  _refineBusy = true;
+  _synthPending = true;                          // 标记：下一次 refine_done 是综合结果
+  _refineOpenDetail = null;                      // synthesize 无单一 base 卡
+  const box = document.getElementById('rcRefining');
+  const txt = document.getElementById('rcRefiningText');
+  if (box) box.style.display = 'block';
+  if (txt) txt.textContent = `正在把 ${parts.length} 轮真实成果综合成最终答案…`;
+  if (window._decorativeMode){ runDecorativeRefine('synthesize', null); return; }
+  wsSend({
+    type:'refine', mode:'synthesize',
+    context: String(parts[0] ? (_runs.find(r=>r.seq===parts[0].seq)?.context || _lastContext || '') : (_lastContext || '')),
+    prior_output: prior, instruction: '',
+    task_kind: undefined,
+  });
+}
 
 document.getElementById('timelineBtn')?.addEventListener('click', () => tlTogglePanel());
 document.getElementById('decisionBtn')?.addEventListener('click', () => dcToggle());
@@ -5777,7 +5860,10 @@ function runDecorativeExecution(idx, opts={}){
 function runDecorativeRefine(mode, base){
   const prior = resultPlainText(base) || '';
   let text;
-  if (mode === 'expand'){
+  if (mode === 'synthesize'){
+    text = '【综合最终答案 · 演示模式】\n' + _decorFakeOutput('多轮成果')
+      + '\n\n上面是把本次旅程多轮成果综合后的终版（本地模拟，未调用模型）。';
+  } else if (mode === 'expand'){
     text = prior + '\n\n【完整展开】\n' + _decorFakeOutput(base?.label || '这一步')
       + '\n\n上面是这份草稿的展开版本，结构更完整、层次更清楚；可直接复制到文档，或点「导出成品」保存为 .md。';
   } else {
@@ -7234,6 +7320,23 @@ init();
         animating: !!(glow && glow.material && glow.material.opacity > 0.01),
       };
     },
+    // v0.9.35：refine 完整成果同步探针——到达牌/主轴节点上挂的 detail 是否已是完整成果。
+    // 用 output 长度区分（短摘要 vs 完整成果），供「关卡后从 3D 点开仍是完整成果」回归。
+    _refineSyncProbe(){
+      const arr = branchSigns.filter(s => s.userData.branchId === -2);
+      const signOut = arr.map(s => String((s.userData.arrivalDetail || {}).output || ''));
+      const journeyOut = journey.map(j => String((j.arrivalDetail || {}).output || '')).filter(Boolean);
+      const activeOut = String((_activeCardDetail || {}).output || '');
+      return {
+        signCount: arr.length,
+        signOutputLens: signOut.map(s => s.length),
+        journeyOutputLens: journeyOut.map(s => s.length),
+        activeOutputLen: activeOut.length,
+        // 所有 3D 锚点的 output 是否与当前完整成果一致（无旧摘要残留）
+        signAllMatch: arr.length > 0 && signOut.every(s => s === activeOut && s.length > 0),
+        journeyLastMatch: journeyOut.length > 0 && journeyOut[journeyOut.length - 1] === activeOut,
+      };
+    },
     // v0.9.11.5 诊断：每块牌的世界 XZ 坐标 + 淡出状态（行驶几何探测）
     _signXZ(){
       return branchSigns.map(s => {
@@ -7405,6 +7508,15 @@ init();
         lastChain: _runs.length ? _runs[_runs.length-1].exec.chain.slice() : [],
         lastParent: _runs.length ? _runs[_runs.length-1].fork_of_seq : null,
       };
+    },
+    // v0.9.35 synthesize 回归钩子：读素材收集结果 / 驱动起始 / 查状态
+    get synthReadyParts(){ return collectRealOutputs().map(p => ({ seq:p.seq, label:p.label, len:p.output.length })); },
+    startSynthesizeForTest(){ startSynthesize(); return { busy:_refineBusy, pending:_synthPending }; },
+    get synthPending(){ return _synthPending; },
+    get synthDetail(){
+      const d = _activeCardDetail || {};
+      return { synthesized:!!d.synthesized, label:d.label || '', chain:(d.chain||[]).slice(),
+               outputLen:String(d.output||'').length, note:d.note||'' };
     },
     _exportDeliverablePreview(){
       const d = _activeCardDetail;
