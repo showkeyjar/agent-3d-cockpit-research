@@ -75,6 +75,36 @@ _RETRIEVAL_TERMS = re.compile(
 )
 
 
+# ─── 结果可用性判据（P0 / v0.9.30）────────────────────────────────────
+# 把「模型吐了字」和「用户目标达成」分开。三档达成度是规则判据（不依赖模型
+# 自评，单测确定），模型自评作为 refine 展开时的附加信号，两者独立记录。
+#   achieved  = 真拿到模型产出且足以作为成果
+#   partial   = 有产出但被截断/中断/非真实来源
+#   need_input= 澄清轮（模型主动索要输入，任务未完成）
+COMPLETION_ACHIEVED = "achieved"
+COMPLETION_PARTIAL = "partial"
+COMPLETION_NEED_INPUT = "need_input"
+COMPLETION_LABELS = {
+    COMPLETION_ACHIEVED: "目标达成",
+    COMPLETION_PARTIAL: "部分达成",
+    COMPLETION_NEED_INPUT: "待补输入",
+}
+
+
+def judge_completion(*, clarify: bool = False, interrupted: bool = False,
+                     ok: bool = False, source: str = "", output: str = "") -> str:
+    """规则判据：这一步对用户目标而言达成到什么程度。
+    只依据已确定字段判断，不调用模型、不猜测——P1 账本可复算。"""
+    if clarify:
+        return COMPLETION_NEED_INPUT
+    if interrupted:
+        return COMPLETION_PARTIAL
+    text = (output or "").strip()
+    if ok and source == "llm" and text and not text.startswith("["):
+        return COMPLETION_ACHIEVED
+    return COMPLETION_PARTIAL
+
+
 def classify_task_kind(context: str) -> str:
     """识别任务类型：compose（起草/生成，产物就是文字）/ analysis（需外部数据）/ general。
 
@@ -553,6 +583,7 @@ class AgentExecutor:
                 "source": "llm" if partial else "local",
                 "reason": "user_cancelled",
                 "task_kind": kind,
+                "completion": COMPLETION_PARTIAL,
                 "tokens": tokens_est,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
                 "note": "已由用户中断",
@@ -618,6 +649,7 @@ class AgentExecutor:
                     "source": "llm",
                     "reason": "",
                     "task_kind": kind,
+                    "completion": COMPLETION_NEED_INPUT,
                     "tokens": tokens_est,
                     "elapsed_ms": elapsed_ms,
                     "note": "",
@@ -647,9 +679,127 @@ class AgentExecutor:
             "source": source,
             "reason": "" if source == "llm" else (reason or "llm_failed"),
             "task_kind": kind,
+            "completion": judge_completion(
+                ok=True, source=source, output=output),
             "tokens": tokens_est,
             "elapsed_ms": elapsed_ms,
             "note": note,
+        }
+
+    async def refine(self, context: str, prior_output: str, instruction: str,
+                     mode: str = "expand", task_kind: str = "",
+                     cancel_event=None) -> Dict:
+        """P0 产出层/迭代层：基于已拿到的一次成果做二次真实生成。
+
+        mode='expand'  → 把 150 字要点扩成 400–800 字可直接用的完整成果；
+        mode='followup' → 用户追问（展开/改写/换格式/深入某点），把上一轮
+                          真实成果作为上下文继续深化。
+
+        设计纪律：
+        - 真调 LLM（同一个 /chat/completions 流式接口），绝不拼装模板冒充生成；
+        - 走独立 executor 实例，不碰 execute 主链的 tracker/任务条/3D 状态；
+        - 输入里的 prior_output 是模型自己上一轮的真实产出，不是编造；
+        - 中断/忙/失败一律返回 ok=False，交由前端如实呈现，不伪造成果。
+
+        返回 {"ok","output","source","completion","reason","tokens",
+              "elapsed_ms","mode","note","interrupted?"}。
+        """
+        mode = mode if mode in ("expand", "followup") else "expand"
+        t0 = time.monotonic()
+        tokens_est = 0
+        parts_out: List[str] = []
+
+        if mode == "expand":
+            task_line = (
+                "用户最初要的是：" + (context or "") + "\n"
+                "之前只给了一份简短要点（这是模型真实产出）：\n"
+                "---\n" + (prior_output or "") + "\n---\n"
+                "现在把这份要点扩写成一份完整、结构清晰、可直接使用的成果。"
+            )
+        else:
+            task_line = (
+                "用户最初的任务：" + (context or "") + "\n"
+                "之前已经拿到的成果（模型真实产出）：\n"
+                "---\n" + (prior_output or "") + "\n---\n"
+                "用户现在的要求：" + (instruction or "") + "\n"
+                "基于上面的真实成果，按用户要求继续深化/改写。"
+            )
+
+        final_prompt = (
+            task_line
+            + "\n硬性要求：\n"
+            "1. 直接给出完整成果本身，不要复述任务、不要客套、不要写「以下是」。\n"
+            "2. 产物要能直接用：起草类给可照做的分条内容，分析类给结论+依据+建议。\n"
+            "3. 400字以上、800字以内，用清晰的编号或小标题分块。\n"
+            "4. 禁止网址、链接、域名；不要把任务推回给用户。\n"
+            "5. 严禁编造你不知道的具体数字或事实；确实缺外部数据时，"
+            "在正文后用一行写 [达成度: 待补输入] 并说明缺什么，其余情况不要写这行。"
+        )
+
+        def interrupted_result() -> Dict:
+            partial = "".join(parts_out).strip()
+            return {
+                "ok": False, "output": partial, "interrupted": True,
+                "source": "llm" if partial else "local",
+                "completion": COMPLETION_PARTIAL,
+                "reason": "user_cancelled", "mode": mode,
+                "tokens": tokens_est,
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "note": "已由用户中断",
+            }
+
+        async def on_chunk(chunk: str):
+            nonlocal tokens_est
+            parts_out.append(chunk)
+            tokens_est += max(1, round(len(chunk) / 1.6))
+
+        text, reason = "", ""
+        if self.use_llm:
+            free = await self._wait_strata(12, cancel_event)
+            if cancel_event is not None and cancel_event.is_set():
+                return interrupted_result()
+            if free:
+                text, reason = await self._llm_stream(
+                    final_prompt, max_tokens=1200, on_chunk=on_chunk,
+                    cancel_event=cancel_event)
+                if reason == "interrupted":
+                    return interrupted_result()
+            else:
+                reason = "model_busy"
+        else:
+            reason = "llm_disabled"
+
+        if text and text.startswith("["):
+            return {
+                "ok": False, "output": "", "source": "llm",
+                "completion": COMPLETION_NEED_INPUT, "reason": reason or "need_input",
+                "mode": mode, "tokens": tokens_est,
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "note": "模型表示缺少外部数据，无法据此扩写",
+            }
+
+        if text and not self._pushes_back_to_user(text):
+            # 模型自评：正文末尾的 [达成度: …] 只作为附加信号，规则判据仍独立记录。
+            self_rating = ""
+            m = re.search(r"\[达成度:\s*([^\]]+)\]", text)
+            if m:
+                self_rating = m.group(1).strip()
+                text = text[:m.start()].strip()
+            return {
+                "ok": True, "output": text, "source": "llm",
+                "completion": COMPLETION_ACHIEVED, "self_rating": self_rating,
+                "reason": "", "mode": mode, "tokens": tokens_est,
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "note": "",
+            }
+
+        return {
+            "ok": False, "output": "", "source": "local",
+            "completion": COMPLETION_PARTIAL,
+            "reason": reason or "llm_failed", "mode": mode,
+            "tokens": tokens_est,
+            "elapsed_ms": int((time.monotonic() - t0) * 1000),
+            "note": self.HONEST_FALLBACK.get(reason or "", "这一步没有产生成果"),
         }
 
     @staticmethod

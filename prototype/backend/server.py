@@ -46,7 +46,7 @@ from core import (
 )
 from llm_forecaster import LLMCandidateSampler
 from projection import project_to_3d, multimodal_projection
-from task_tracker import TaskTracker, AgentExecutor
+from task_tracker import TaskTracker, AgentExecutor, judge_completion
 import llm_config
 
 # ──────────────────────────────────────────────
@@ -561,6 +561,11 @@ async def ws_endpoint(ws: WebSocket):
                         await conn.active_executor.abort()
                 await conn.send({"type": "cancel_ack", "active": active})
 
+            elif data.get("type") == "refine":
+                # P0 产出层/迭代层：基于已拿到的一次成果做二次真实生成，
+                # 独立后台任务，不占用/不重置 execute 的 cancel/任务条状态。
+                asyncio.create_task(run_refine(conn, data))
+
             elif data.get("type") == "explain":
                 # 驾驶前认知对齐：把路牌翻译成大白话，后台执行不阻塞
                 asyncio.create_task(run_explain(conn, data))
@@ -694,6 +699,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
             "chain": [], "note": "", "elapsed_ms": 0, "tokens": 0,
             "planned_steps": planned_steps,
             "task_kind": task_kind or "",
+            "completion": "partial",
             "interrupted": False, "cancel_late": False,
         }
 
@@ -740,6 +746,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
                     "source": result.get("source", "local"),
                     "reason": "user_cancelled",
                     "task_kind": result.get("task_kind", ""),
+                    "completion": result.get("completion", "partial"),
                     "tokens": result.get("tokens", 0),
                     "note": "已由用户中断",
                 })
@@ -756,6 +763,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
                     "clarify": result.get("clarify", False),
                     "question": result.get("question", ""),
                     "task_kind": result.get("task_kind", ""),
+                    "completion": result.get("completion", "partial"),
                 })
         except asyncio.TimeoutError:
             # 不发 error：让前端用 execute_done 里的完整 tasks 展示结果卡
@@ -775,6 +783,64 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
             await conn.send(done)      # 一定会发，前端一定能解锁
             conn.active_executor = None
             await executor.close()
+
+
+async def run_refine(conn: WSConnection, data: dict):
+    """P0 产出层/迭代层（v0.9.30）：基于已拿到的一次成果做二次真实生成。
+
+    与 run_execute 完全独立：自己的 executor、自己的 cancel_event、自己的
+    refine_done 回执。不改主轴、不铺到达牌、不进 execute 的任务条——它是
+    「把摘要变成可用成果」的深化通道，不是新一轮执行。前端把 refine_done
+    作为带 parent_run_id 的账本轮次记入 P1，形成追问链。
+
+    契约：无论成功/忙/中断/失败，都回一条 refine_done，绝不静默挂起。
+    """
+    context = str(data.get("context") or conn.context or "")[:600]
+    prior = str(data.get("prior_output") or "")[:1200]
+    instruction = str(data.get("instruction") or "")[:300]
+    mode = data.get("mode") if data.get("mode") in ("expand", "followup") else "expand"
+    task_kind = data.get("task_kind")
+    if task_kind not in ("compose", "analysis", "general"):
+        task_kind = ""
+
+    done = {
+        "type": "refine_done", "mode": mode, "ok": False,
+        "output": "", "source": "local", "completion": "partial",
+        "self_rating": "", "reason": "", "note": "",
+        "tokens": 0, "elapsed_ms": 0, "interrupted": False,
+    }
+    t0 = time.monotonic()
+    cancel_event = asyncio.Event()
+    tracker = TaskTracker(callback=lambda d: None)
+    executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker,
+                             use_llm=EXEC_USE_LLM())
+    try:
+        await conn.send({"type": "refine_ack", "mode": mode})
+        result = await asyncio.wait_for(
+            executor.refine(context, prior, instruction, mode=mode,
+                            task_kind=task_kind, cancel_event=cancel_event),
+            timeout=70,
+        )
+        done.update({
+            "ok": bool(result.get("ok")),
+            "output": (result.get("output") or "")[:6000],
+            "source": result.get("source", "local"),
+            "completion": result.get("completion", "partial"),
+            "self_rating": result.get("self_rating", ""),
+            "reason": result.get("reason", ""),
+            "note": result.get("note", ""),
+            "tokens": result.get("tokens", 0),
+            "interrupted": bool(result.get("interrupted")),
+        })
+    except asyncio.TimeoutError:
+        done.update({"reason": "timeout", "note": "展开生成超时，已如实收尾"})
+    except Exception as e:
+        print(f"[refine] error: {e}")
+        done.update({"reason": "error", "note": str(e)})
+    finally:
+        done["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+        await conn.send(done)
+        await executor.close()
 
 
 async def run_explain(conn: WSConnection, data: dict):

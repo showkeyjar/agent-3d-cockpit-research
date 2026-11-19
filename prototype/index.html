@@ -908,7 +908,22 @@ body.immersive #immersiveHud{display:block;opacity:1;}
       </div>
       <div class="rc-sec" id="rcOutSec">
         <div class="rc-h"><span>拿到的结果</span><em id="rcSource"></em></div>
+        <div id="rcCompletion" style="display:none;margin:0 0 8px;padding:5px 9px;border-radius:6px;font-size:11px;line-height:1.5;"></div>
         <div class="rc-out" id="rcOutput"></div>
+        <div id="rcRefining" style="display:none;margin-top:9px;padding:8px 10px;border:1px solid rgba(95,224,255,.32);border-radius:8px;background:rgba(95,224,255,.05);color:#8fd8f5;font-size:12px;line-height:1.6;">
+          <span class="spin" style="display:inline-block;width:9px;height:9px;margin-right:6px;border:2px solid rgba(95,224,255,.3);border-top-color:#5ee0ff;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;"></span>
+          <span id="rcRefiningText">正在基于这份结果继续生成…</span>
+        </div>
+      </div>
+      <div id="rcDeliver" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid rgba(52,245,160,.34);border-radius:8px;background:rgba(52,245,160,.05);">
+        <div style="color:#9dffcf;font-size:12px;line-height:1.6;margin-bottom:8px;">这份结果还不够用？让它继续变成品 —— 都是真实再次生成，不拼模板。</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <button type="button" id="rcExpandBtn" style="padding:6px 11px;border:1px solid rgba(52,245,160,.5);border-radius:6px;background:rgba(52,245,160,.12);color:#9dffcf;cursor:pointer;font-size:12px;">展开完整成果（400–800字）</button>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="rcFollowInput" placeholder="继续要求：展开第2点 / 改成表格 / 更正式…" maxlength="120" autocomplete="off" style="flex:1;min-width:0;padding:6px 9px;border:1px solid rgba(95,224,255,.28);border-radius:6px;background:rgba(255,255,255,.03);color:var(--text);font-size:12px;" />
+          <button type="button" id="rcFollowBtn" style="padding:6px 11px;border:1px solid rgba(95,224,255,.5);border-radius:6px;background:rgba(95,224,255,.12);color:#8fd8f5;cursor:pointer;font-size:12px;">继续深化 →</button>
+        </div>
       </div>
       <div class="rc-note" id="rcNote" style="display:none;"></div>
       <div class="rc-actions" id="rcActions"></div>
@@ -2201,6 +2216,8 @@ function handleWsMessage(msg){
   else if (msg.type === 'task_update') updateTask(msg);
   else if (msg.type === 'token') onToken(msg);
   else if (msg.type === 'execute_done') onExecuteDone(msg);
+  else if (msg.type === 'refine_ack') onRefineAck(msg);
+  else if (msg.type === 'refine_done') onRefineDone(msg);
   else if (msg.type === 'explain_result') showExplain(msg);
   else if (msg.type === 'error'){
     // 关键：后端任何报错都要解锁，绝不让按钮停在「执行中」
@@ -2238,6 +2255,15 @@ let _clarifyStreak = 0;     // v0.9.29：连续 clarify 次数。连续反问 = 
                             // 达到阈值就在澄清卡上给「换起草方式/补数据」的产品化出路。
 let _forceComposeNext = false; // v0.9.29：一次性标记，下次 execute 强制 task_kind=compose
 const CLARIFY_STREAK_GUIDE = 2;
+// v0.9.30 P0 结果可用性：refine 状态（展开完整成果 / 追问深化），
+// 独立 execute 主链。_refineOpenDetail 记当前正在深化的那张卡的数据对象。
+let _refineBusy = false;
+let _refineOpenDetail = null;
+const COMPLETION_META = {
+  achieved:   { text:'目标达成', color:'#34f5a0', bg:'rgba(52,245,160,.10)' },
+  partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
+  need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
+};
 const TL_VERSION = 'v0.9.17';
 const TL_SESSION_STARTED = new Date().toISOString();
 const TL_STATUS = {
@@ -3742,7 +3768,9 @@ function renderResultProof(d){
     + `<br><span style="opacity:.8">输入上下文：${escHtml(ctx.slice(0, 60))}${ctx.length > 60 ? '…' : ''}</span>`;
 }
 
+let _activeCardDetail = null;   // v0.9.30：当前结果卡绑定的 detail（refine 深化用）
 function showResultCard(d){
+  _activeCardDetail = d;
   const card = document.getElementById('resultCard');
   // 完成感知动画由 CSS 接管（.show 触发的 rcLongPulse 8s + 徽章呼吸），
   // 不再手动叠加一次性的 pulse 类——一次性脉冲的用户感知窗口只有 1.4 秒，
@@ -3757,6 +3785,10 @@ function showResultCard(d){
   const _guideReset = document.getElementById('rcClarifyGuide'); if (_guideReset) _guideReset.style.display = 'none';
   document.getElementById('rcQuestionBig').style.display = 'none';
   document.getElementById('rcInputRow').style.display = 'none';
+  // v0.9.30：P0 交付/深化区与达成度条在每次开卡时先复位，避免澄清卡/中断卡
+  // 因提前 return 而残留上一次的显示态。
+  const _deliverReset = document.getElementById('rcDeliver'); if (_deliverReset) _deliverReset.style.display = 'none';
+  const _compReset = document.getElementById('rcCompletion'); if (_compReset) _compReset.style.display = 'none';
   const _ib = document.getElementById('rcInterruptBar');
   if (_ib){ _ib.style.display = 'none'; _ib.textContent = ''; }
   const _ih = document.getElementById('rcInteract'); if (_ih) _ih.style.display = '';
@@ -4027,6 +4059,29 @@ function showResultCard(d){
         : `执行未成功：${d.note || '原因未记录'}。\n可以重试，或换一条路再走。`);
   document.getElementById('rcSource').textContent = hasReal ? '来自大模型' : '无真实产出';
 
+  // v0.9.30 P0 判据层：把「目标达成度」独立呈现——模型吐了字不等于用户拿到结果。
+  // 后端规则判据随 execute_done 回传；老数据没有该字段时按 hasReal 保守推导。
+  const _cm = document.getElementById('rcCompletion');
+  if (_cm){
+    const comp = d.completion || (d.clarify ? 'need_input'
+                    : (hasReal ? 'achieved' : 'partial'));
+    const meta = COMPLETION_META[comp] || COMPLETION_META.partial;
+    _cm.style.display = 'block';
+    _cm.style.color = meta.color;
+    _cm.style.background = meta.bg;
+    _cm.textContent = `目标达成度：${meta.text}`
+      + (d.self_rating ? `（模型自评：${escText(d.self_rating)}）` : '')
+      + ' · 这是对用户目标而言的完成程度，与「模型有没有输出」分开看';
+  }
+  // v0.9.30 交付/迭代层：只有拿到真实产出才给「带走 + 深化」工具，
+  // 澄清/失败卡不显示，避免在没有成果时假装能深化。
+  const _deliver = document.getElementById('rcDeliver');
+  if (_deliver){
+    _deliver.style.display = (hasReal && !d.refine_pending) ? 'block' : 'none';
+  }
+  const _refiningBox = document.getElementById('rcRefining');
+  if (_refiningBox) _refiningBox.style.display = 'none';
+
   const REASON_TEXT = {
     model_busy:   '本地模型只有一个推理槽，这一刻正被其他任务占用，这一步没有产生成果。槽位空出来后，点「重试这一步」就能拿到真实内容。',
     llm_disabled: '当前未启用模型推理（EXEC_USE_LLM=0），这一步没有产生成果。开启后点「重试这一步」即可看到模型生成的答案。',
@@ -4075,11 +4130,168 @@ function showResultCard(d){
     hideResultCard();
     runForecast(_lastContext || d.question || '');
   });
+  // v0.9.30 交付层：把成果真正交给用户——复制 / 导出交付文档。
+  // 与研究数据导出（时间线 JSON/CSV，含来源与分支）分开：这里是给用户用的成品。
+  if (hasReal){
+    mk('复制结果', false, () => copyResultText(d));
+    mk('导出成品（.md）', false, () => exportDeliverable(d));
+  }
 
   document.getElementById('cardContainer').scrollTop = 0;
 }
 
 document.getElementById('rcClose').addEventListener('click', hideResultCard);
+
+/* ── v0.9.30 P0 结果可用性：复制 / 导出 / 展开 / 追问 ─────────────────
+   设计纪律：所有交付物内容只来自 d.output（模型真实产出）与 d.context（用户原话），
+   不拼模板冒充成果；导出与研究数据分开；二次生成走独立 refine 通道。 */
+function resultPlainText(d){
+  return String(d?.output || '').trim();
+}
+async function copyResultText(d){
+  const text = resultPlainText(d);
+  if (!text){ showToast('这一步没有可复制的成果', '#ffb13d'); return; }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    showToast('已复制结果正文到剪贴板', '#34f5a0');
+  } catch(e){ showToast('复制失败，请手动选择正文', '#ff8a8a'); }
+}
+function exportDeliverable(d){
+  const text = resultPlainText(d);
+  if (!text){ showToast('这一步没有可导出的成果', '#ffb13d'); return; }
+  const comp = COMPLETION_META[d.completion] || COMPLETION_META.partial;
+  const lines = [
+    '# 交付成果',
+    '',
+    '- 原始任务：' + String(d.context || '').replace(/\s+/g, ' ').trim(),
+    '- 采用路径：' + String(d.label || d.branchLabel || '').trim(),
+    '- 达成度：' + comp.text + (d.self_rating ? `（模型自评：${d.self_rating}）` : ''),
+    '- 来源：' + (d.source === 'llm' ? '大模型真实生成' : (d.source || '未知')),
+    '- 生成耗时：' + (Number.isFinite(d.elapsed_ms) ? (d.elapsed_ms/1000).toFixed(1)+'s' : (d.elapsed || '—')),
+    '- 导出时间：' + new Date().toISOString(),
+    '- 说明：本文件由 agent-3d-cockpit 原型导出，正文为模型真实产出，未经改写。',
+    '',
+    '---',
+    '',
+    text,
+    '',
+  ];
+  downloadTextFile(lines.join('\n'), '成果-' + new Date().toISOString().slice(0,10) + '.md', 'text/markdown;charset=utf-8');
+  showToast('已导出成品 .md（区别时间线的研究数据导出）', '#34f5a0');
+}
+function downloadTextFile(text, filename, mime){
+  try {
+    const blob = new Blob([text], {type: mime || 'text/plain;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch(e){ showToast('导出失败：' + (e.message || '未知错误'), '#ff8a8a'); }
+}
+
+function startRefine(mode){
+  if (_refineBusy){ showToast('上一次深化还在生成中', '#ffd23f'); return; }
+  const d = _activeCardDetail;
+  const prior = resultPlainText(d);
+  if (!prior){ showToast('没有可深化的成果', '#ffb13d'); return; }
+  let instruction = '';
+  if (mode === 'followup'){
+    instruction = (document.getElementById('rcFollowInput')?.value || '').trim();
+    if (!instruction){ showToast('先写下要怎么改，再点继续深化', '#ffd23f'); return; }
+  }
+  if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN){
+    showToast('后端未连接，无法再次生成', '#ffb13d'); return;
+  }
+  _refineBusy = true;
+  _refineOpenDetail = d;
+  const box = document.getElementById('rcRefining');
+  const txt = document.getElementById('rcRefiningText');
+  if (box) box.style.display = 'block';
+  if (txt) txt.textContent = mode === 'expand'
+    ? '正在把这份要点扩写成完整成果…' : '正在按你的要求继续深化…';
+  const btnE = document.getElementById('rcExpandBtn');
+  const btnF = document.getElementById('rcFollowBtn');
+  if (btnE) btnE.disabled = true;
+  if (btnF) btnF.disabled = true;
+  wsSend({
+    type:'refine', mode,
+    context: String(d.context || ''),
+    prior_output: prior,
+    instruction,
+    task_kind: d.task_kind || undefined,
+  });
+}
+function onRefineAck(msg){
+  const txt = document.getElementById('rcRefiningText');
+  if (txt) txt.textContent = msg.mode === 'expand'
+    ? '模型正在扩写完整成果（这一步是真实再次生成）…'
+    : '模型正在按你的要求深化（真实再次生成）…';
+}
+function onRefineDone(msg){
+  _refineBusy = false;
+  const box = document.getElementById('rcRefining');
+  if (box) box.style.display = 'none';
+  const btnE = document.getElementById('rcExpandBtn');
+  const btnF = document.getElementById('rcFollowBtn');
+  if (btnE) btnE.disabled = false;
+  if (btnF) btnF.disabled = false;
+
+  const base = _refineOpenDetail || _activeCardDetail;
+  if (!msg.ok){
+    showToast(msg.note || '这次深化没有拿到成果，原结果保留', '#ffb13d');
+    return;
+  }
+  const prior = resultPlainText(base);
+  const out = String(msg.output || '').trim();
+  if (!out){ showToast('模型这次没有返回新内容，原结果保留', '#ffb13d'); return; }
+
+  // 把深化后的完整成果作为新一轮进 P1 账本，父轮指向被深化的那轮 → 追问链。
+  // 不铺到达牌、不改 3D 机位：深化是结果卡内的事，符合「2D 不劫持 3D」纪律。
+  // 父轮定位：优先用 recordRun 写回 detail 的 seq（最准），退化按 output 匹配。
+  const seqOfBase = (base && Number.isInteger(base.seq))
+    ? base.seq
+    : (_runs.find(r => r.output === prior)?.seq) || null;
+  _forkCtx = seqOfBase ? { parentRunId: null, parentSeq: seqOfBase,
+                           label: msg.mode === 'expand' ? '展开完整成果' : '继续深化',
+                           matched: true } : null;
+  const refineDetail = {
+    ok:true, mode: base?.mode || 'choice',
+    label: msg.mode === 'expand' ? '展开完整成果' : '继续深化',
+    title: msg.mode === 'expand' ? '完整成果' : '深化后的成果',
+    context: base?.context || '',
+    output: out, source: msg.source, reason: '',
+    elapsed_ms: msg.elapsed_ms, tokens: msg.tokens,
+    chain: ['refine:' + msg.mode],
+    completion: msg.completion, self_rating: msg.self_rating,
+    note: '基于上一轮真实成果再次生成',
+    count: 1, tasks: [],
+    pos: base?.pos || null,
+    branchLabel: base?.branchLabel || '',
+    refine_pending: true,
+  };
+  recordRun(refineDetail, 'done');
+  _forkCtx = null;
+  // 结果卡就地更新为完整成果（still 同一张卡，不新铺 3D 到达牌）
+  _activeCardDetail = refineDetail;
+  _arrivalResults.set(-2, refineDetail);
+  showResultCard(refineDetail);
+  showToast(msg.mode === 'expand' ? '已展开为完整成果，可复制或导出' : '已按你的要求深化', '#34f5a0');
+}
+
+// 事件绑定（showResultCard 每次渲染只改显隐，不重复绑定）
+document.getElementById('rcExpandBtn')?.addEventListener('click', () => startRefine('expand'));
+document.getElementById('rcFollowBtn')?.addEventListener('click', () => startRefine('followup'));
+document.getElementById('rcFollowInput')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); startRefine('followup'); }
+});
 
 /* ── 认知对齐：看不懂就问，后台把路牌翻译成大白话 ──────────
    这是原始需求「驾驶之前认知对齐，看不懂可解释」的落地：
@@ -4304,6 +4516,8 @@ function saveJourneyRecord(ok, detail, idx){
       exec_elapsed_ms: detail.elapsed_ms ?? null,
       exec_tokens: detail.tokens ?? null,
       exec_chain: Array.isArray(detail.chain) ? detail.chain.join(' → ') : '',
+      exec_completion: detail.completion || '',
+      exec_self_rating: detail.self_rating || '',
     },
   };
   fetch('http://localhost:8770/api/journeys', {
@@ -4329,7 +4543,7 @@ const TL_CSV_COLS = [
   'forecast_candidate_labels','forecast_candidate_count',
   'forecast_fork_count','forecast_cost_ms','exec_source','exec_reason',
   'exec_ok','exec_interrupted','exec_clarify','exec_elapsed_ms','exec_tokens',
-  'exec_chain','output_chars','output','note',
+  'exec_chain','exec_completion','exec_self_rating','output_chars','output','note',
 ];
 
 function tlFmtMs(ms){
@@ -4408,6 +4622,10 @@ function recordRun(detail, status){
       elapsed_ms:Number.isFinite(detail.elapsed_ms) ? detail.elapsed_ms : null,
       tokens:Number.isFinite(detail.tokens) ? detail.tokens : null,
       chain:Array.isArray(detail.chain) ? detail.chain.slice() : [],
+      // v0.9.30 P0 判据层：达成度与模型自评（可用性与「有没有输出」分开记账）
+      completion: detail.completion || (detail.clarify ? 'need_input'
+                    : (detail.ok && detail.source === 'llm' ? 'achieved' : 'partial')),
+      self_rating: detail.self_rating || '',
     },
     output:String(detail.output ?? ''),
     tasks, note:String(detail.note || ''),
@@ -4415,6 +4633,12 @@ function recordRun(detail, status){
     detail:{...detail},   // 仅内部只读回看，导出时剔除
   };
   _runs.push(run);
+  // v0.9.30：把 run_id/seq 写回 detail 对象本身（引用共享），使结果卡/到达牌
+  // 持有的 detail 能直接关联到账本轮次——refine 深化据此建立准确的父轮链。
+  if (detail && typeof detail === 'object'){
+    detail.run_id = run.run_id;
+    detail.seq = seq;
+  }
   _tlSelected = run.run_id;
   renderTimeline();
   updateProgressHud();                                   // v0.9.23：每轮收尾刷新常驻 HUD
@@ -4652,6 +4876,7 @@ function tlFlatRun(r){
     exec_ok:m.ok, exec_interrupted:m.interrupted, exec_clarify:m.clarify,
     exec_elapsed_ms:m.elapsed_ms, exec_tokens:m.tokens,
     exec_chain:Array.isArray(m.chain) ? m.chain.join(' → ') : '',
+    exec_completion:m.completion || '', exec_self_rating:m.self_rating || '',
     output_chars:String(r.output || '').length,
     output:r.output || '', note:r.note || '',
   };
@@ -4683,6 +4908,12 @@ function exportRuns(format){
     forecast_llm:cnt('llm'), forecast_fast:cnt('fast'),
     forecast_local:cnt('local'), forecast_offline:cnt('offline'),
     exec_llm:runs.filter(r => r.exec.source === 'llm').length,
+    // v0.9.30 P0：结果可用性二维——达成度分布（与「有没有输出」的 status 分开）
+    completion_achieved:runs.filter(r => r.exec.completion === 'achieved').length,
+    completion_partial:runs.filter(r => r.exec.completion === 'partial').length,
+    completion_need_input:runs.filter(r => r.exec.completion === 'need_input').length,
+    refine_runs:runs.filter(r => Array.isArray(r.exec.chain)
+                 && r.exec.chain.some(c => String(c).startsWith('refine:'))).length,
   };
   if (format === 'csv') return runsToCsv(runs);
   return JSON.stringify({
@@ -5546,6 +5777,7 @@ function finishExecution(ok, note='', detail={}){
       idx:idxI, note: note || detail.note || '已由用户中断',
       elapsed_ms:detail.elapsed_ms, tokens:detail.tokens,
       chain:detail.chain || ['output'], planned_steps:detail.planned_steps,
+      completion:'partial', task_kind:detail.task_kind,
       pos:null,
     };
     inputEnabled(true);
@@ -5618,6 +5850,9 @@ function finishExecution(ok, note='', detail={}){
       elapsed_ms:detail.elapsed_ms, tokens:detail.tokens, chain:detail.chain,
       planned_steps:detail.planned_steps,
       clarify: detail.clarify,
+      // v0.9.30 P0：后端规则判据随 execute_done 回传，前端如实透传进卡与账本
+      completion: detail.completion,
+      task_kind: detail.task_kind,
       pos: p ? [p[0], p[1], p[2]] : null,   // F3.2：结果的空间锚点——卡能定位回 3D
       branchLabel: c.label || '',           // F3.2：这条路叫什么（卡上显示"你在哪条路上"）
     };
@@ -6768,6 +7003,38 @@ init();
       };
     },
     get clarifyStreak(){ return _clarifyStreak; },
+    // v0.9.30 P0 结果可用性回归钩子
+    get completion(){
+      const d = _activeCardDetail || {};
+      return d.completion || (d.clarify ? 'need_input' : (d.ok && d.source === 'llm' ? 'achieved' : 'partial'));
+    },
+    get completionText(){
+      const m = COMPLETION_META[this.completion] || COMPLETION_META.partial;
+      return m.text;
+    },
+    get deliverShown(){ return document.getElementById('rcDeliver').style.display === 'block'; },
+    get completionShown(){ return document.getElementById('rcCompletion').style.display === 'block'; },
+    // 直接驱动一次 refine_done 渲染 + 账本写入，验证深化链不依赖真实模型槽位
+    _injectRefineDone(msg){
+      onRefineDone(Object.assign({ ok:true, mode:'expand', source:'llm',
+        completion:'achieved', self_rating:'达成', output:'', elapsed_ms:100,
+        tokens:20, note:'' }, msg || {}));
+      return {
+        output: String(_activeCardDetail?.output || ''),
+        completion: _activeCardDetail?.completion || '',
+        runs: _runs.length,
+        lastChain: _runs.length ? _runs[_runs.length-1].exec.chain.slice() : [],
+        lastParent: _runs.length ? _runs[_runs.length-1].fork_of_seq : null,
+      };
+    },
+    _exportDeliverablePreview(){
+      const d = _activeCardDetail;
+      return resultPlainText(d) ? {
+        text: resultPlainText(d),
+        hasTask: String(d.context || '').length > 0,
+        completion: d.completion || '',
+      } : null;
+    },
     // v0.9.11.2：结果卡强调与行驶落位同步（full-chain 测试探针）
     finishOnce(d){
       __cockpit._testMode = true;
