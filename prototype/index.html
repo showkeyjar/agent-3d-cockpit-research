@@ -908,7 +908,10 @@ body.immersive #immersiveHud{display:block;opacity:1;}
       </div>
       <div class="rc-sec" id="rcOutSec">
         <div class="rc-h"><span>拿到的结果</span><em id="rcSource"></em></div>
-        <div id="rcCompletion" style="display:none;margin:0 0 8px;padding:5px 9px;border-radius:6px;font-size:11px;line-height:1.5;"></div>
+        <div id="rcCompletion" style="display:none;margin:0 0 8px;padding:5px 9px;border-radius:6px;font-size:11px;line-height:1.5;">
+          <div id="rcCompText"></div>
+          <div id="rcCompAction" style="display:none;margin-top:6px;"></div>
+        </div>
         <div class="rc-out" id="rcOutput"></div>
         <div id="rcRefining" style="display:none;margin-top:9px;padding:8px 10px;border:1px solid rgba(95,224,255,.32);border-radius:8px;background:rgba(95,224,255,.05);color:#8fd8f5;font-size:12px;line-height:1.6;">
           <span class="spin" style="display:inline-block;width:9px;height:9px;margin-right:6px;border:2px solid rgba(95,224,255,.3);border-top-color:#5ee0ff;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;"></span>
@@ -967,6 +970,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <button type="button" id="tlCompareClear" title="清空已选的两个对照轮次">清空对照</button>
     <button type="button" id="tlExportJson" class="primary" title="导出逐轮完整凭据（研究数据）">导出 JSON</button>
     <button type="button" id="tlExportCsv" title="导出平坦字段，便于量表统计">导出 CSV</button>
+    <button type="button" id="tlExportDeliver" title="v0.9.31：把本次旅程所有真实成果汇总成一份可带走的 .md（区别于研究数据导出）">汇总成果 .md</button>
     <button type="button" id="tlClose" title="关闭">×</button>
   </div>
   <div class="tl-strip" id="tlStrip"></div>
@@ -4069,9 +4073,13 @@ function showResultCard(d){
     _cm.style.display = 'block';
     _cm.style.color = meta.color;
     _cm.style.background = meta.bg;
-    _cm.textContent = `目标达成度：${meta.text}`
+    const _cmText = document.getElementById('rcCompText');
+    if (_cmText) _cmText.textContent = `目标达成度：${meta.text}`
       + (d.self_rating ? `（模型自评：${escText(d.self_rating)}）` : '')
       + ' · 这是对用户目标而言的完成程度，与「模型有没有输出」分开看';
+    // v0.9.31 P0 行动化：达成度不能只"知道"，要给出下一步可点击动作——
+    // 这才是"能真正指导用户拿到结果"。动作与达成度语义对齐，复用既有函数不新增通道。
+    renderCompletionAction(comp, hasReal);
   }
   // v0.9.30 交付/迭代层：只有拿到真实产出才给「带走 + 深化」工具，
   // 澄清/失败卡不显示，避免在没有成果时假装能深化。
@@ -4141,6 +4149,50 @@ function showResultCard(d){
 }
 
 document.getElementById('rcClose').addEventListener('click', hideResultCard);
+
+/* ── v0.9.31 P0 行动化：达成度 → 下一步可点击动作 ─────────────────────
+   达成度只"知道"不够，要直接给出"拿到结果"的下一步。动作语义与三态对齐：
+   - achieved：成果可执行 → 引导带走（复制 / 导出）
+   - partial ：成果还半途 → 引导展开完整成果补齐
+   - need_input / 无真实产出：不显示（clarify 卡有自己的补数据引导，不重复）
+   全部复用既有函数，不新增 WS 通道、不碰 3D。 */
+function renderCompletionAction(comp, hasReal){
+  const box = document.getElementById('rcCompAction');
+  if (!box) return;
+  box.innerHTML = '';
+  box.style.display = 'none';
+  if (!hasReal) return; // 无真实产出不假装能行动
+  let items = [];
+  if (comp === 'achieved'){
+    items = [
+      {label:'复制成果 →', act:'copy', color:'#34f5a0'},
+      {label:'导出成品 .md', act:'export', color:'#5ee0ff'},
+    ];
+  } else if (comp === 'partial'){
+    items = [{label:'展开完整成果补齐 →', act:'expand', color:'#ffb13d'}];
+  }
+  if (!items.length) return;
+  box.style.display = 'flex';
+  box.style.flexWrap = 'wrap';
+  box.style.gap = '6px';
+  items.forEach(it=>{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = it.label;
+    b.dataset.compAct = it.act;
+    b.style.cssText = `padding:4px 9px;border:1px solid ${it.color}66;border-radius:5px;`
+      + `background:${it.color}18;color:${it.color};cursor:pointer;font-size:11px;`;
+    box.appendChild(b);
+  });
+  box.onclick = (e) => {
+    const btn = e.target.closest('button[data-comp-act]');
+    if (!btn) return;
+    const d = _activeCardDetail;
+    if (btn.dataset.compAct === 'copy') copyResultText(d);
+    else if (btn.dataset.compAct === 'export') exportDeliverable(d);
+    else if (btn.dataset.compAct === 'expand') startRefine('expand');
+  };
+}
 
 /* ── v0.9.30 P0 结果可用性：复制 / 导出 / 展开 / 追问 ─────────────────
    设计纪律：所有交付物内容只来自 d.output（模型真实产出）与 d.context（用户原话），
@@ -4938,6 +4990,58 @@ function downloadRuns(format){
   setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
   showToast(`已导出 ${_runs.length} 轮记录（${isCsv ? 'CSV' : 'JSON'}，含来源与分支标记）`, '#34f5a0');
 }
+
+/* ── v0.9.31 P0 行动化：整轮成果汇总导出 ────────────────────────────
+   时间线的 JSON/CSV 是「研究数据」（含凭据/分支/来源四态），不是给用户的成品。
+   这里把本次旅程所有真实成果聚合成一份可带走的 .md：一次拿走全部，
+   而非逐卡导出。只收真实 LLM 产出，clarify/failed/interrupted/local 兜底不混入。 */
+function exportAllDeliverables(){
+  const real = _runs.filter(r => r.status === 'done'
+    && r.exec?.source === 'llm'
+    && String(r.output || '').trim());
+  if (!real.length){
+    showToast('本次旅程还没有可汇总的真实成果', '#ffb13d'); return;
+  }
+  const compText = c => (COMPLETION_META[c] || COMPLETION_META.partial).text;
+  const lines = [
+    '# 本次旅程 · 成果汇总',
+    '',
+    `- 任务：${String(real[0].context || '').replace(/\s+/g,' ').trim()}`,
+    `- 真实成果轮数：${real.length} / 本次共 ${_runs.length} 轮`,
+    `- 导出时间：${new Date().toISOString()}`,
+    '- 说明：本文件汇总本次旅程中模型的真实产出（逐轮原文，未经改写）。'
+      + '达成度为对用户目标而言的完成程度；refine 轮为基于上一轮真实成果的再次生成。',
+    '',
+    '---',
+    '',
+  ];
+  real.forEach((r, i) => {
+    const isRefine = Array.isArray(r.exec.chain)
+      && r.exec.chain.some(c => String(c).startsWith('refine:'));
+    const parent = r.parent_run_id || (r.fork_of_seq ? 'r'+r.fork_of_seq : '—');
+    lines.push(`## ${i+1}. ${r.label || (isRefine ? '深化' : '执行')}`);
+    lines.push('');
+    lines.push(`- 轮次：${r.run_id}${r.parent_run_id ? `（承接 ${parent}）` : ''}`);
+    lines.push(`- 采用路径：${String(r.branch_label || r.label || '').trim()}`);
+    lines.push(`- 达成度：${compText(r.exec.completion)}`
+      + (r.exec.self_rating ? `（模型自评：${r.exec.self_rating}）` : ''));
+    lines.push(`- 来源：${r.exec.source === 'llm' ? '大模型真实生成' : r.exec.source}`
+      + ` · 耗时：${Number.isFinite(r.exec.elapsed_ms) ? (r.exec.elapsed_ms/1000).toFixed(1)+'s' : '—'}`
+      + ` · token：${r.exec.tokens ?? '—'}`);
+    if (isRefine) lines.push('- 类型：基于上一轮真实成果的再次生成（refine）');
+    lines.push('');
+    lines.push(String(r.output).trim());
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+  });
+  const text = lines.join('\n');
+  downloadTextFile(text, '成果汇总-' + new Date().toISOString().slice(0,10) + '.md', 'text/markdown;charset=utf-8');
+  showToast(`已汇总 ${real.length} 轮真实成果为一份 .md`, '#34f5a0');
+  return text;
+}
+
+document.getElementById('tlExportDeliver')?.addEventListener('click', exportAllDeliverables);
 
 document.getElementById('timelineBtn')?.addEventListener('click', () => tlTogglePanel());
 document.getElementById('decisionBtn')?.addEventListener('click', () => dcToggle());
@@ -7035,6 +7139,10 @@ init();
         completion: d.completion || '',
       } : null;
     },
+    // v0.9.31 P0 行动化钩子
+    get compActionShown(){ const b=document.getElementById('rcCompAction'); return !!b && b.style.display !== 'none'; },
+    get compActionLabels(){ return Array.from(document.querySelectorAll('#rcCompAction button')).map(b=>b.textContent); },
+    _exportAllDeliverablesPreview(){ return exportAllDeliverables(); },
     // v0.9.11.2：结果卡强调与行驶落位同步（full-chain 测试探针）
     finishOnce(d){
       __cockpit._testMode = true;

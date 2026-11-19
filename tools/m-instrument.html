@@ -111,6 +111,9 @@
       <div class="q"><div class="lab">你能复述出一条可核对依据（如耗时 / token / 来源 / 数据出处）吗？</div>
         <div class="yn" data-yn="recited_evidence"><label><input type="radio" name="recited_evidence" value="1">能</label>
           <label><input type="radio" name="recited_evidence" value="0">不能</label></div></div>
+      <div class="q"><div class="lab">v0.9.30 · 你能把这份成果「带走」（复制或导出成文件）吗？</div>
+        <div class="yn" data-yn="took_result"><label><input type="radio" name="took_result" value="1">能</label>
+          <label><input type="radio" name="took_result" value="0">不能</label></div></div>
     </div>
 
     <div class="card">
@@ -167,10 +170,14 @@ const SCALE = [
   {k:'s2',c:'P2',t:'我能确认结果是真实可核对的'},
   {k:'s3',c:'P3',t:'我知道是哪一步 / 谁带来这个改变'},
   {k:'s4',c:'P4',t:'我在界面上注意到了这个改变'},
-  {k:'s5',c:'总体',t:'整体上我感到产生了实质进展（而非只是看起来忙）'}
+  {k:'s5',c:'总体',t:'整体上我感到产生了实质进展（而非只是看起来忙）'},
+  // v0.9.30 P0 结果可用性：实用 = 能真正指导用户拿到结果。s6/s7 测「结果是否有用」，
+  // 与 s1–s5 测「进展是否真实」正交；不得用 s5 高分替代 s6/s7。
+  {k:'s6',c:'P0',t:'我拿到了一份能用（可复制 / 导出 / 继续深化）的成果，而不只是一段摘要'},
+  {k:'s7',c:'P0',t:'我清楚知道这个任务目标到底算不算达成'}
 ];
 const LS_KEY = 'm-exp-records';
-const PROTO_VER = 'v0.9.20';
+const PROTO_VER = 'v0.9.30';
 
 /* ---------- 状态 ---------- */
 let S = { arm:null, task:null, pid:null };
@@ -238,12 +245,12 @@ $('#btnSubmit').addEventListener('click', ()=>{
   const rec = { pid:S.pid, arm:S.arm, arm_override:S.arm_override || false, task_type:S.task.type, prototype_ver:PROTO_VER, ts:new Date().toISOString() };
   let ok=true;
   SCALE.forEach(it=>{ const v=$(`input[name=${it.k}]:checked`); if(!v){ok=false;} else rec[it.k]=+v.value; });
-  ['found_product','named_step','recited_evidence'].forEach(k=>{
+  ['found_product','named_step','recited_evidence','took_result'].forEach(k=>{
     const v=$(`input[name=${k}]:checked`); rec[k]= v? +v.value : null; });
   rec.think_aloud = $('#think_aloud').value.trim();
   rec.interview_note = $('#interview_note').value.trim();
   rec.notes = $('#notes').value.trim();
-  if(!ok){ toast('请完成 s1–s5 全部评分'); return; }
+  if(!ok){ toast('请完成 s1–s7 全部评分'); return; }
   const all = getRecs(); all.push(rec); setRecs(all);
   paintM3(rec);
   $('#scrSurvey').classList.add('hidden');
@@ -261,10 +268,12 @@ function paintM3(rec){
     ['时间线回看 / 分叉重走 / 导出','P3 可追溯', rec.s3>=4 && rec.named_step===1, `s3=${rec.s3} · 指出步骤=${rec.named_step}`],
     ['3D 到达节点 + 风景来源联动','P4 可感知', rec.s4>=4, `s4=${rec.s4}`],
     ['透明呈现叠加真实执行','总体实质进展感', rec.s5>=4, `s5=${rec.s5}`],
+    // v0.9.30 P0：结果可用性——与 s1–s5「进展是否真实」正交，不得用 s5 高分替代。
+    ['复制/导出 + 展开完整成果 + 追问深化 + 达成度','P0 可用性', rec.s6>=4 && rec.s7>=4 && rec.took_result===1, `s6=${rec.s6} · s7=${rec.s7} · 带走成果=${rec.took_result}`],
   ];
   let h = `<table><tr><th>原型特性</th><th>判据</th><th>实验证据</th><th>结论</th></tr>`;
   rows.forEach(r=> h += `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[3]}</td><td>${pass(r[2])}</td></tr>`);
-  h += `</table><p class="sub">阈值：对应 s≥4 且行为结果为「是」即判通过。逐项在 M-EXPERIMENT.md §9 汇总共识。</p>`;
+  h += `</table><p class="sub">阈值：对应 s≥4 且行为结果为「是」即判通过。P0 行（s6/s7 + 带走成果）测「结果是否有用」，与 s1–s5「进展是否真实」正交。逐项在 M-EXPERIMENT.md §9 / M3-ACCEPTANCE.md 汇总。</p>`;
   $('#m3box').innerHTML = h;
 }
 
@@ -287,13 +296,13 @@ $('#btnExportAll').addEventListener('click', ()=>{
 $('#btnViewAll').addEventListener('click', ()=>{
   const recs=getRecs(); const b=$('#allBox'); b.classList.toggle('hidden');
   if(b.classList.contains('hidden')) return;
-  let h='<table><tr><th>pid</th><th>arm</th><th>task</th><th>s1</th><th>s2</th><th>s3</th><th>s4</th><th>s5</th><th>产物</th><th>步骤</th><th>依据</th></tr>';
-  recs.forEach(r=> h+=`<tr><td>${r.pid}</td><td>${r.arm}</td><td>${r.task_type}</td><td>${r.s1}</td><td>${r.s2}</td><td>${r.s3}</td><td>${r.s4}</td><td>${r.s5}</td><td>${r.found_product}</td><td>${r.named_step}</td><td>${r.recited_evidence}</td></tr>`);
+  let h='<table><tr><th>pid</th><th>arm</th><th>task</th><th>s1</th><th>s2</th><th>s3</th><th>s4</th><th>s5</th><th>s6</th><th>s7</th><th>产物</th><th>步骤</th><th>依据</th><th>带走</th></tr>';
+  recs.forEach(r=> h+=`<tr><td>${r.pid}</td><td>${r.arm}</td><td>${r.task_type}</td><td>${r.s1}</td><td>${r.s2}</td><td>${r.s3}</td><td>${r.s4}</td><td>${r.s5}</td><td>${r.s6 ?? '—'}</td><td>${r.s7 ?? '—'}</td><td>${r.found_product}</td><td>${r.named_step}</td><td>${r.recited_evidence}</td><td>${r.took_result ?? '—'}</td></tr>`);
   h+='</table>'; b.innerHTML=h;
 });
 
 function toCSV(recs){
-  const cols=['pid','arm','task_type','s1','s2','s3','s4','s5','found_product','named_step','recited_evidence','think_aloud','interview_note','notes','prototype_ver','ts'];
+  const cols=['pid','arm','arm_override','task_type','s1','s2','s3','s4','s5','s6','s7','found_product','named_step','recited_evidence','took_result','think_aloud','interview_note','notes','prototype_ver','ts'];
   const esc=v=>{ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   let out='\uFEFF'+cols.join(',')+'\n';
   recs.forEach(r=> out+=cols.map(c=>esc(r[c])).join(',')+'\n');
