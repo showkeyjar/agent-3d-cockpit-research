@@ -122,6 +122,30 @@ ledger_runs=9, semantic_digest_lines=6, semantic_kept_seqs=[4..9], layers_out_of
 
 ---
 
+## 4c. Q-d 跨轮语义衰减只读投影进账本（v0.9.44，2026-11-19）
+
+**问题**：三层不同步是运行时事实，但账本里看不到"某轮是何时掉出模型视野的"。能否把这个衰减写进账本/导出，让 P3 的可追溯性扩展到多轮——且不算"新增完成信号"？
+
+**判定：可以做，前提是纯派生只读投影。** 现有完成信号是 `status`（四态）+ `completion`（三态），它们**参与判定**（门控、达成度、主轴推进、M3 验收）。新增字段 `digest_kept_seqs` 的值完全由 `_runs` 内容 + 固定 `tail=6` 算法派生，**不参与任何判定路径**——性质等同 `internal_state_dist` / `forecast_divergence` 这类描述性元数据。没有新增完成信号，不破坏 P1 账本纪律。
+
+**实现**（单一真相源，防逻辑漂移）：
+1. 把 `buildSessionDigest` 的"真实轮筛选 + tail 截断"抽成共享纯函数 `digestRealRuns()` / `digestKeptSeqs()`——投影与摘要用同一套逻辑（也正是 Q-a golden 校验过的那套）。
+2. 每条 run 在 `recordRun` 收尾时写 `digest_kept_seqs = digestKeptSeqs()`——记下"本轮结束时语义视野内有哪些真实轮 seq"。
+3. JSON 导出全字段深拷贝自动带；CSV 增列 `digest_kept_seqs`（含逗号数组按 RFC4180 转义）。
+4. 时序关键点：正交标记必须在 `recordRun` 时就位。真实路径均满足——synthesize 走 `onRefineDone`→`recordRun`（detail 自带 `synthesized`），decorative 经 `onExecuteDone` 透传。测试钩子 `_injectExecuteDoneForTest` 对 synthesized 是后补写（execute_done 协议本不带），故另加 `_injectSynthesizedForTest` 模拟真实路径。
+
+**跨轮衰减可追溯性**（实测 9 轮，注入式）：
+```
+轮1 kept=[1] → 轮6 kept=[1..6] → 轮7 kept=[2..7]（seq1 掉出）→ 轮9 kept=[4..9]（seq1-3 掉出）
+```
+对比任意两轮的 `digest_kept_seqs`，即可定位某 seq 何时离开模型视野——**RQ2"断裂在哪一层"从"摘要文本里推断"升级为"账本字段里直接读"**。
+
+**验证**：`prototype/test_digest_provenance.js`（repo ↔ LIVE 同步）**18/18 通过**：字段存在、逐轮演进（tail=6 边界精确）、干扰轮（decorative/synthesized/failed/空输出）全不进 kept、投影不改 completion/status、JSON/CSV 导出对齐（RFC 引号）、forkTopology 与 0 JS 错。关键回归 cross_turn 21/21 + session 31/31 + timeline 42/42 + synthesize 全过 + tree_fork 17/17 + no_fingerprint 8/8。
+
+**诚实边界**：注入式账本，非真实多轮 LLM 交互；投影只记录"视野内 seq"，不度量用户是否感知（H4.1/RQ5 仍 [真人] 待验）。它让衰减**可追溯**，不等于衰减**被感知**。
+
+---
+
 ## 5. 与现有研究的关系（不重复）
 
 | 已有工作 | 它解决什么 | 本研究新增什么 |
@@ -148,7 +172,7 @@ ledger_runs=9, semantic_digest_lines=6, semantic_kept_seqs=[4..9], layers_out_of
 - **Q-a 摘要保留策略**：✅ **已做离线对比（§4b，16/16）**。结论：S5（`tail=3`+里程碑上限6）是相对基线的帕累托改进（同 302 字符、里程碑 3/7→5/7）；S4 无上限里程碑会随会话单调膨胀；S6 仅里程碑丢当前上下文有风险。**推荐候选 S5，但不直接改生产默认值**——须经真人 RQ5 + 门控污染复测双确认。仍存的真问题：里程碑"重要性"是否就等于 `achieved`？（`partial`/`need_input` 也可能是关键转折）。
 - **Q-b 衰减可视化**：脉络视图目前按时间平铺。是否该显式标出"哪些轮已不在模型视野内"（语义层衰减的可感知化）——把 RQ2 的发现直接呈现给用户，属 P4 扩展。
 - **Q-c 真人 RQ5**：设计多轮任务（≥7 轮，跨过 tail=6 边界）的真人协议，测"用户是否感到早期工作被记住"。需真人，不可代做。
-- **Q-d 语义保真度进账本**：是否把"本轮 digest 保留了哪些 seq"作为字段写进 `_runs`/导出，让跨轮次衰减可追溯（P3 的多轮扩展）。需评估是否算"新增完成信号"——若为只读投影则安全。
+- **Q-d 语义保真度进账本**：✅ **已落地（v0.9.44，§4c，18/18）**。每轮 `recordRun` 写只读字段 `digest_kept_seqs`（该轮收尾时 digest 视野内的真实轮 seq）；JSON 自动带、CSV 增列。**判定：不算新增完成信号**——它是 `_runs` 内容 + tail 算法的纯派生投影，不参与 status/completion/门控/主轴任何判定，性质等同 internal_state_dist。让"某轮何时掉出模型视野"可追溯（P3 多轮扩展），3D/机位/轨道零改动。
 
 ---
 
@@ -158,7 +182,8 @@ ledger_runs=9, semantic_digest_lines=6, semantic_kept_seqs=[4..9], layers_out_of
 - ✅ 运行时探针 21/21，三层不同步可复算事实成立——§4。
 - ✅ 研究边界界定（不重复 v0.9.37 工程、不新增完成信号）——§5。
 - ✅ **Q-a 摘要保留策略离线对比 16/16**（golden 逐字校验 + 6 策略决议数据；推荐候选 S5，不改生产默认值）——§4b。
+- ✅ **Q-d 跨轮语义衰减只读投影进账本 v0.9.44（18/18）**——§4c。判定不算新增完成信号；让 RQ2 断裂定位从文本推断升级为账本字段直读。
 - ⬜ **RQ5 真人验证待做**（多轮任务 ≥7 轮，跨 tail=6 边界）——真人硬缺口，不可代做。
-- ⬜ Q-b/c/d 开放问题待定方向。
+- ⬜ Q-b/c 开放问题待定方向。
 
 > ⚠️ 当前结论强度：**"跨轮次信息流的三层不同步"是已测得的运行时事实；"它影响进展感"是待验假设。** 两者不得混用，不得据前者宣布后者成立。

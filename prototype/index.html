@@ -2551,7 +2551,7 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.43';
+const TL_VERSION = 'v0.9.44';
 const TL_SESSION_STARTED = new Date().toISOString();
 
 /* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
@@ -2943,11 +2943,21 @@ function wsSend(data){
 const SESSION_DIGEST_BEGIN = '<<<会话摘要:历史背景·非本轮任务>>>';
 const SESSION_DIGEST_END = '<<<END会话摘要>>>';
 
+// Q-d（v0.9.44）：把 buildSessionDigest 的「真实轮筛选 + tail 截断」抽成单一真相源，
+// 供跨轮衰减只读投影复用，避免两处逻辑漂移（也是 Q-a golden 校验过的同一套逻辑）。
+function digestRealRuns(){
+  return _runs.filter(r => r.status === 'done'
+    && r.exec?.source === 'llm' && !r.exec?.decorative && !r.exec?.synthesized
+    && String(r.output || '').trim());
+}
+// 只读投影：本轮收尾时刻，buildSessionDigest 视野内的真实轮 seq 列表。
+// 纯派生元数据（由 _runs 内容 + tail 算法决定），不参与完成度/门控/主轴任何判定——不是完成信号。
+function digestKeptSeqs(){
+  return digestRealRuns().slice(-6).map(r => r.seq);
+}
 function buildSessionDigest(){
   try {
-    const real = _runs.filter(r => r.status === 'done'
-      && r.exec?.source === 'llm' && !r.exec?.decorative && !r.exec?.synthesized
-      && String(r.output || '').trim());
+    const real = digestRealRuns();
     if (!real.length) return '';
     const tail = real.slice(-6);   // 最近 6 轮，避免摘要本身膨胀
     const lines = tail.map(r => {
@@ -5297,6 +5307,7 @@ const TL_CSV_COLS = [
   'exec_ok','exec_interrupted','exec_clarify','exec_elapsed_ms','exec_tokens',
   'exec_chain','exec_completion','exec_self_rating','exec_decorative','exec_synthesized',
   'internal_state_status','internal_state_source','internal_state_dist','internal_state_top',
+  'digest_kept_seqs',
   'output_chars','output','note',
 ];
 
@@ -5397,6 +5408,10 @@ function recordRun(detail, status){
     detail:{...detail},   // 仅内部只读回看，导出时剔除
   };
   _runs.push(run);
+  // v0.9.44 Q-d：跨轮衰减只读投影——记下「本轮收尾时，语义摘要视野内有哪些真实轮」。
+  // 纯派生（_runs 内容 + tail 算法），不参与 status/completion/门控/主轴任何判定；
+  // 它让"某轮何时掉出模型视野"可追溯（P3 多轮扩展），不新增完成信号。
+  run.digest_kept_seqs = digestKeptSeqs();
   // v0.9.30：把 run_id/seq 写回 detail 对象本身（引用共享），使结果卡/到达牌
   // 持有的 detail 能直接关联到账本轮次——refine 深化据此建立准确的父轮链。
   if (detail && typeof detail === 'object'){
@@ -5725,6 +5740,7 @@ function tlFlatRun(r){
     internal_state_source:m.internal_state?.source || '',
     internal_state_dist:JSON.stringify(m.internal_state?.dist || []),
     internal_state_top:JSON.stringify(m.internal_state?.top_experts || []),
+    digest_kept_seqs:JSON.stringify(r.digest_kept_seqs || []),
     output_chars:String(r.output || '').length,
     output:r.output || '', note:r.note || '',
   };
@@ -8295,6 +8311,16 @@ init();
       }
       return { completion:last?.exec?.completion || '', cardCompletion:_activeCardDetail?.completion || '' };
     },
+    // v0.9.44 Q-d：模拟真实 synthesize 路径（onRefineDone→recordRun，detail 自带 synthesized）。
+    // 投影在 recordRun 内即时算，synthesized 必须在 recordRun 时就就位——
+    // 不能走 _injectExecuteDoneForTest（execute_done 协议不带 synthesized、会晚补写）。
+    _injectSynthesizedForTest(output){
+      recordRun({ output:output || '\u7efc\u5408\u7ec8\u7248', source:'llm',
+        completion:'achieved', synthesized:true, chain:['synthesize'], tasks:[] }, 'done');
+      return { seq:_runs.length ? _runs[_runs.length-1].seq : -1 };
+    },
+    // v0.9.44 Q-d：导出钩子（exportRuns 是模块内函数，顶层不挂 window）
+    _exportRunsForTest(format){ return exportRuns(format || 'json'); },
     // 断点10：在 idx=0 构造最小分支位置后走一次 finishExecution，验证 clarify 不推进主轴
     _finishAtForTest(idx, detail){
       const jBefore = journey.length;

@@ -7,6 +7,12 @@
 
 ---
 
+## v0.9.44 · 2026-11-19 · 跨轮语义衰减只读投影进账本（Q-d，P3 多轮扩展）
+
+把 buildSessionDigest 的真实轮筛选 + tail 截断抽成共享纯函数 `digestRealRuns()/digestKeptSeqs()`（单一真相源，与 Q-a golden 校验同一套逻辑），避免投影与摘要逻辑漂移。每条 run 收尾时写只读字段 `digest_kept_seqs`——记下"本轮结束时语义视野内有哪些真实轮 seq"，让"某轮何时掉出模型上下文"可追溯。JSON 全字段导出自动带；CSV 增列 `digest_kept_seqs`。
+
+**不新增完成信号**：该字段是 _runs 内容 + tail 算法的纯派生投影，不参与 status/completion/门控/主轴任何判定，性质等同 internal_state_dist。3D/机位/轨道/到达牌/中断态零改动。研究文档 CROSS-TURN-PROGRESS §4b/§7 Q-d 同步。
+
 ## v0.9.43 · 2026-11-19 · M2 指纹环单变量对照入口（B2 组 + 采集工具专项题）
 
 把 v0.9.42 的 3D 指纹环纳入 M2 真人检验：新增 **B2 组**（与 B 唯一差异=隐藏指纹环），纯呈现层门控，不改执行/账本/机位/轨道/到达牌。配套 `tools/m-instrument.html` 增加指纹环专项量表与导出字段。
