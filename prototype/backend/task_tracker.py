@@ -119,13 +119,59 @@ def judge_completion(*, clarify: bool = False, interrupted: bool = False,
     return COMPLETION_PARTIAL
 
 
+# 会话脉络连续性（v0.9.37）：前端把历史真实轮次压缩成一段「会话摘要」随新问题
+# 一起下发，让模型看到连续上下文。但门控绝不能被摘要里历史的数据词污染——
+# 否则「上一轮分析过 ERA5 数据，这一轮起草一份报告」会被误判成 analysis → clarify。
+# 摘要用专用标记包裹，门控扫描前先剥离。标记前后端共用（index.html 同名常量）。
+SESSION_DIGEST_BEGIN = "<<<会话摘要:历史背景·非本轮任务>>>"
+SESSION_DIGEST_END = "<<<END会话摘要>>>"
+
+
+def strip_session_digest(context: str) -> str:
+    """剥掉会话摘要标记段，只留本轮真实任务语句（门控唯一依据）。
+
+    只剥「完整闭合」的标记段：真实摘要由前端配对生成，永远有 BEGIN+END。
+    未闭合标记一律当作普通文本保留——避免用户手输/粘贴半个标记时把本轮真实诉求
+    一起删掉（复核发现：未闭合时曾把 BEGIN 之后整段丢弃，可能误伤分析类任务）。
+    """
+    s = context or ""
+    i = s.find(SESSION_DIGEST_BEGIN)
+    if i < 0:
+        return s.strip()
+    j = s.find(SESSION_DIGEST_END, i)
+    if j < 0:
+        return s.strip()          # 未闭合：保守不剥，当普通文本
+    head = s[:i]
+    tail = s[j + len(SESSION_DIGEST_END):]
+    # 摘要通常附在末尾；若其后仍有本轮补充语句，一并保留供门控判断。
+    return (head + "\n" + tail).strip()
+
+
+def split_session_digest_for_prompt(context: str):
+    """把 context 拆成 (本轮问题, 摘要正文)。供 execute prompt 用自然语言呈现历史，
+    避免内部标记 <<<会话摘要…>>> 直接透传给模型（复核问题6）。未闭合标记不拆。"""
+    s = context or ""
+    i = s.find(SESSION_DIGEST_BEGIN)
+    if i < 0:
+        return s.strip(), ""
+    j = s.find(SESSION_DIGEST_END, i)
+    if j < 0:
+        return s.strip(), ""
+    head = s[:i].strip()
+    tail = s[j + len(SESSION_DIGEST_END):].strip()
+    body = s[i + len(SESSION_DIGEST_BEGIN):j].strip()
+    clean = (head + ("\n" + tail if tail else "")).strip()
+    return clean, body
+
+
 def classify_task_kind(context: str) -> str:
     """识别任务类型：compose（起草/生成，产物就是文字）/ analysis（需外部数据）/ general。
 
     保守策略：只有明确起草信号才归 compose；明确的外部数据依赖优先归 analysis，
     保留模型诚实索要输入的能力。宁可漏判（走原行为）也不错判（该索要时不索要）。
+    ★ 只扫描本轮原话：会话摘要（历史背景）必须先剥离，防止跨轮数据词污染门控。
     """
-    text = (context or "").strip()
+    text = strip_session_digest(context)
     if not text:
         return "general"
     if _DATA_DEPENDENT.search(text):
@@ -534,8 +580,16 @@ class AgentExecutor:
                 "以 [需要输入: 开头，后跟具体要什么。"
                 "这是你作为智能体主动发起的交互，不是把任务推回去。"
             )
+        # v0.9.37：把内部会话摘要标记转成自然语言「历史背景」——模型仍看到连续上下文，
+        # 但不再把 <<<会话摘要…>>> 这类内部 token 当指令或脏数据（复核问题6）。
+        _ctx_clean, _digest_body = split_session_digest_for_prompt(context)
+        _history_line = (
+            f"本会话此前的真实进展（供延续参考，非本轮任务）：\n{_digest_body}\n"
+            if _digest_body else ""
+        )
         final_prompt = (
-            f"用户的问题：{context}\n"
+            f"用户的问题：{_ctx_clean}\n"
+            f"{_history_line}"
             f"{label_line}"
             f"{plan_line}"
             "你现在是智能体，这一步由你亲自完成，把成果直接交付给用户，而不是告诉用户去做什么事。\n"

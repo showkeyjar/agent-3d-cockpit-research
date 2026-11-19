@@ -395,9 +395,19 @@
     transition:.2s;white-space:nowrap;}
   #sendBtn:hover{background:rgba(94,224,255,.25);}
   #sendBtn:disabled{opacity:.3;cursor:not-allowed;}
+  /* v0.9.37：新提问 / 补充当前会话 意图切换 */
+  #intentRow{display:flex;align-items:center;gap:6px;padding:0 4px 7px;}
+  #intentRow button{padding:3px 10px;border-radius:6px;border:1px solid var(--border);
+    background:rgba(255,255,255,.04);color:var(--muted);font-size:11px;cursor:pointer;transition:.18s;}
+  #intentRow button.on{color:#8ff5c6;border-color:rgba(52,245,160,.5);background:rgba(52,245,160,.12);}
+  #intentRow #intentSupplement.on{color:#ffcf7f;border-color:rgba(255,177,61,.55);background:rgba(255,177,61,.13);}
+  #intentHint{margin-left:auto;font-size:10px;color:var(--muted);opacity:.8;}
+  #inputBar.supplement-mode #inputRow{border-color:rgba(255,177,61,.5);}
+  #inputBar.supplement-mode #sendBtn{border-color:#ffb13d;color:#ffcf7f;background:rgba(255,177,61,.12);}
 
-  /* ── clarify 底部悬浮回答条：贴在输入框正上方（视线焦点），模型索要输入时才出现 ── */
-  #clarifyDock{position:fixed;bottom:78px;left:50%;transform:translateX(-50%);
+  /* ── clarify 底部悬浮回答条：贴在输入框正上方（视线焦点），模型索要输入时才出现 ──
+     v0.9.37：输入栏上方多了意图切换行（#intentRow），dock 随之上移，避免与输入栏重叠。 */
+  #clarifyDock{position:fixed;bottom:108px;left:50%;transform:translateX(-50%);
     width:560px;max-width:92vw;pointer-events:auto;z-index:14;
     padding:12px 14px;border-radius:12px;
     border:1px solid rgba(94,224,255,.55);
@@ -627,9 +637,27 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     color:#9fb4d8;font-size:10px;padding:3px 9px;border-radius:7px;cursor:pointer;
     font-family:inherit;white-space:nowrap;}
   .tl-head button:hover{color:var(--cyan);border-color:var(--cyan);}
+  .tl-head button.on{color:#ffcf7f;border-color:rgba(255,177,61,.55);background:rgba(255,177,61,.13);}
   .tl-head button.primary{color:#8ff5c6;border-color:rgba(52,245,160,.35);}
   .tl-head button#tlClose{border:none;background:rgba(255,255,255,.06);color:var(--muted);
     width:20px;height:20px;padding:0;border-radius:5px;font-size:13px;line-height:1;}
+  /* v0.9.37：会话脉络——按时间交织 问题/补充/执行轮，直观看连续性 */
+  .tl-thread{flex:1;overflow-y:auto;padding:12px 16px;border-bottom:1px solid var(--border);}
+  .tt-row{display:flex;gap:10px;padding:7px 0;position:relative;}
+  .tt-row:not(:last-child)::before{content:'';position:absolute;left:11px;top:26px;bottom:-7px;
+    width:1px;background:linear-gradient(var(--border),transparent);}
+  .tt-dot{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;
+    justify-content:center;font-size:10px;font-weight:700;border:1px solid var(--border);
+    background:rgba(255,255,255,.05);color:var(--muted);z-index:1;}
+  .tt-row.question .tt-dot{color:#8fd8f5;border-color:rgba(94,224,255,.5);}
+  .tt-row.supplement .tt-dot{color:#ffcf7f;border-color:rgba(255,177,61,.55);}
+  .tt-row.run.done .tt-dot{color:#8ff5c6;border-color:rgba(52,245,160,.45);}
+  .tt-row.run.failed .tt-dot,.tt-row.run.interrupted .tt-dot{color:#ff8a8a;border-color:rgba(255,120,120,.45);}
+  .tt-body{flex:1;min-width:0;}
+  .tt-kind{font-size:10px;color:var(--muted);margin-bottom:2px;}
+  .tt-text{font-size:11.5px;line-height:1.55;color:var(--text);word-break:break-word;}
+  .tt-meta{font-size:10px;color:var(--muted);margin-top:3px;}
+  .tt-empty{color:var(--muted);font-size:11px;line-height:1.6;padding:8px 0;}
   .tl-strip{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;flex:none;
     border-bottom:1px solid var(--border);}
   .tl-node{flex:none;width:190px;border-radius:9px;border:1px solid var(--border);
@@ -1021,8 +1049,11 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <button type="button" id="tlExportCsv" title="导出平坦字段，便于量表统计">导出 CSV</button>
     <button type="button" id="tlExportDeliver" title="v0.9.31：把本次旅程所有真实成果汇总成一份可带走的 .md（区别于研究数据导出）">汇总成果 .md</button>
     <button type="button" id="tlSynthesize" title="v0.9.35：把所有真实成果综合成一份可直接交付的最终答案（真实再次生成，非逐轮拼接）">✦ 生成综合答案</button>
+    <button type="button" id="tlThreadBtn" title="v0.9.37：按时间交织显示 问题→补充→执行轮，直观看会话连续性">会话脉络</button>
     <button type="button" id="tlClose" title="关闭">×</button>
   </div>
+  <!-- v0.9.37：会话脉络（连续性视图），与「逐轮凭据」共用 TL 面板，按 view 切换 -->
+  <div class="tl-thread" id="tlThread" style="display:none;"></div>
   <div class="tl-strip" id="tlStrip"></div>
   <div class="tl-body">
     <div class="tl-detail" id="tlDetail"></div>
@@ -1076,6 +1107,12 @@ body.immersive #immersiveHud{display:block;opacity:1;}
 </div>
 
 <div id="inputBar">
+  <!-- v0.9.37：新提问 / 补充当前会话 两种意图分开。补充不重置主线 -->
+  <div id="intentRow">
+    <button type="button" id="intentAsk" class="on" title="开启一个新话题（会从历史摘要继承上下文，但重开探索主线）">新提问</button>
+    <button type="button" id="intentSupplement" title="在当前会话上补充信息：不重置旅程、不清候选路牌，补齐后沿当前会话继续">补充当前会话</button>
+    <span id="intentHint">按 Enter 发送</span>
+  </div>
   <div id="inputRow">
     <input type="text" id="msgInput" placeholder="说点什么…" autocomplete="off" />
     <button id="sendBtn">发送 →</button>
@@ -2319,6 +2356,12 @@ let _lastForecastMeta = {divergence:0.4, road_type:'fork', cost_ms:0, source:'lo
    且新分叉只追加、不覆盖。渲染与导出的函数在文件后段定义。               */
 let _runs = [];
 let _runSeq = 0;
+// v0.9.37：会话脉络的「用户侧事件」流（新提问 / 用户主动补充）。只读投影，
+// 不写 _runs 真相源；脉络视图按时间把 _runs（模型侧轮次）与这些事件交织显示。
+let _sessionEvents = [];
+// 纯用户补充文本（不含 [prev]/旅程链等系统样板）——摘要与上下文重建的唯一来源，
+// 避免从被 buildExploreContext 拼装过的 _lastContext 里误提取系统话术。
+let _supplementLog = [];
 let _tlSelected = null;
 let _tlCompare = [];        // 最多两个 run_id
 let _replayHook = null;     // 一次性：分叉重走 → 真实重新推演 + 真实重新执行
@@ -2705,11 +2748,106 @@ function wsSend(data){
   if (wsConnected && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
 }
 
+/* ── v0.9.37 会话脉络连续性 ─────────────────────────────────────────
+   痛点：旧版每个新问题都 _lastContext = text 直接覆盖，之前走过的轮次、
+   用户补过的信息、纳入过的风景关联全部在语义层清零——3D 轨迹还在、2D 账本
+   还在，但喂给模型的上下文断了，于是「信息丰富了却没有连续性」。
+   修复：新问题把本会话真实轮次压缩成「会话摘要」随问题一起下发。
+   ★ 三道红线：
+     ① 只取 status=done & source=llm & !decorative & !synthesized 的真实执行轮——
+        P1 账本纪律，兜底/模拟/综合轮不冒充历史依据；
+     ② 只带产出的一句话结论（oneLineConclusion），不带推演 label/steps
+        （steps 是「猜的做法」，注入会重演任务类型污染）；
+     ③ 摘要用专用标记包裹，后端门控 classify_task_kind 会剥离它，只看本轮原话，
+        防止历史数据词把起草任务误判成 analysis。 */
+const SESSION_DIGEST_BEGIN = '<<<会话摘要:历史背景·非本轮任务>>>';
+const SESSION_DIGEST_END = '<<<END会话摘要>>>';
+
+function buildSessionDigest(){
+  try {
+    const real = _runs.filter(r => r.status === 'done'
+      && r.exec?.source === 'llm' && !r.exec?.decorative && !r.exec?.synthesized
+      && String(r.output || '').trim());
+    if (!real.length) return '';
+    const tail = real.slice(-6);   // 最近 6 轮，避免摘要本身膨胀
+    const lines = tail.map(r => {
+      const concl = oneLineConclusion(r).replace(/\s+/g, ' ').slice(0, 60);
+      const dir = String(r.label || r.branch_label || '').slice(0, 18);
+      const comp = (COMPLETION_META[r.exec?.completion] || {}).text || r.exec?.completion || '';
+      return `· 第${r.seq}轮${dir ? `沿「${dir}」` : ''}：${concl}${comp ? `（${comp}）` : ''}`;
+    });
+    // 用户主动补充也是真实上下文。只读 _supplementLog（纯用户文本），
+    // 绝不从 _lastContext 切——后者被 buildExploreContext 拼过 [prev]/旅程链，
+    // 从中切会把系统样板冒充成「用户曾补充」写进下一轮，破坏语义诚实。
+    const supp = _supplementLog.slice(-3)
+      .map(s => `· 用户曾补充：${String(s).replace(/\s+/g, ' ').slice(0, 100)}`);
+    const allLines = [...lines, ...supp];
+    if (!allLines.length) return '';
+    return '\n\n' + SESSION_DIGEST_BEGIN + '\n' + allLines.join('\n') + '\n' + SESSION_DIGEST_END;
+  } catch(e){ return ''; }   // 账本不可读时如实不带，绝不编造历史
+}
+
+/* ── v0.9.37：新提问 / 补充当前会话 两种意图 ─────────────────────────
+   旧版只有 sendMessage 一条路：无论你想「换话题」还是「给当前任务补点信息」，
+   都走 clearBranches + _lastContext 覆盖 = 把会话冲掉。这就是「补充机制没有」
+   的根因。现在显式分两路：
+     · 新提问   = 重开探索主线（带历史摘要，见 buildSessionDigest）
+     · 补充当前 = 不重置旅程/候选/tags，把补充拼进当前上下文后沿当前会话继续
+   研究数据诚实：补充内容带 [用户补充] 标记，可核对是用户主动补入而非模型编造。 */
+let _inputIntent = 'ask';   // 'ask' | 'supplement'
+function setInputIntent(intent){
+  _inputIntent = (intent === 'supplement') ? 'supplement' : 'ask';
+  const bar = document.getElementById('inputBar');
+  const bA = document.getElementById('intentAsk');
+  const bS = document.getElementById('intentSupplement');
+  const inp = document.getElementById('msgInput');
+  const hint = document.getElementById('intentHint');
+  const send = document.getElementById('sendBtn');
+  if (bar) bar.classList.toggle('supplement-mode', _inputIntent === 'supplement');
+  if (bA) bA.classList.toggle('on', _inputIntent === 'ask');
+  if (bS) bS.classList.toggle('on', _inputIntent === 'supplement');
+  if (inp) inp.placeholder = _inputIntent === 'supplement'
+    ? '补充信息到当前会话（不会清空旅程）…' : '说点什么…';
+  if (hint) hint.textContent = _inputIntent === 'supplement'
+    ? 'Enter 补充并重走当前会话' : '按 Enter 发送';
+  if (send) send.textContent = _inputIntent === 'supplement' ? '补充 →' : '发送 →';
+  return _inputIntent;
+}
+
+function sendSupplement(){
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text || isDriving) return false;
+  input.value = '';
+  input.disabled = true;
+  document.getElementById('sendBtn').disabled = true;
+  // ★ v0.9.37 复核修复：绝不把 buildExploreContext() 的整体结果写回 _lastContext。
+  // 那样会把 [prev]+旅程链+推演尾句反复叠加（多次补充逐层嵌套），且被摘要误提取。
+  // 只追加纯用户补充到 _lastContext，系统样板在 buildExploreContext 里按需拼、用完即弃。
+  _lastContext = (_lastContext || '') + `\n\n[用户补充]\n${text}`;
+  _supplementLog.push(text);   // 纯用户文本，摘要/上下文重建的唯一来源
+  // 记录一条会话事件（脉络视图与导出用；只读投影，不改 _runs 真相源）。
+  _sessionEvents.push({ kind:'supplement', ts:new Date().toISOString(), text,
+                        label:'用户补充' });
+  renderSessionThread();
+  // 意图复位：补充完自动回「新提问」，否则下一次新话题会被误路由成补充（反向 bug）。
+  setInputIntent('ask');
+  showToast('已补充到当前会话，正在沿当前上下文继续推演', '#ffcf7f');
+  // 用「会话基础上下文（原问题+补充，干净）+ tags」重新推演，保留用户已纳入的关联。
+  // tags 只在本次 fetch 按需拼入，runForecast 会因 preserveTags 保留状态。
+  let ctx = _lastContext;
+  if (_contextTags.length) ctx += ' (' + _contextTags.map(t => t.text).join('、') + ')';
+  wsSend({type:'set_context', context:ctx});
+  runForecast(ctx, {preserveTags:true});
+  return true;
+}
+
 /* ── 发送消息 ── */
 function sendMessage(){
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text || isDriving) return;
+  if (_inputIntent === 'supplement'){ sendSupplement(); return; }
   input.value = '';
   input.disabled = true;
   document.getElementById('sendBtn').disabled = true;
@@ -2726,10 +2864,17 @@ function sendMessage(){
     color: '#5ee0ff'
   };
   addJourneyNode(userNode);
+  // v0.9.37：新提问记一条会话事件（脉络视图按时间与执行轮交织）。
+  _sessionEvents.push({ kind:'question', ts:new Date().toISOString(), text,
+                        label:'新问题' });
   clearBranches();   // 清掉上一轮的岔路：动画从干净画面开始，不让用户把旧分叉当成新问题的
   // 先画出前方潜在的路径骨架（未点亮）：路一直在这里，推演只是把它们点亮
   drawPotentialSkeleton(userNode.pos);
-  driveTo(userNode.pos, () => { runForecast(text); });
+  // v0.9.37：新问题带上本会话真实历史摘要（语义连续性）。摘要进 LLM 上下文，
+  // 但后端门控会剥离它只看本轮原话——起草任务不会被历史数据词污染。
+  const digest = buildSessionDigest();
+  const enriched = digest ? (text + digest) : text;
+  driveTo(userNode.pos, () => { runForecast(enriched); });
 }
 
 /* ── 潜在路径骨架：推演结果到达前，先展示「路本来就在」 ──
@@ -3077,7 +3222,7 @@ function addJourneyNode(node){
 
 /* ── 前瞻推理 ── */
 /* ── 两阶段推演：先毫秒级出牌，再让 LLM 结果择机覆盖 ── */
-function runForecast(context){
+function runForecast(context, opts={}){
   _lastContext = context;
   rebuildScenery();                    // 愿景1：新任务发出即把任务文本铺成沿途语义风景的底（诚实近似）
   clearHistoryTrail();                 // 开始新一轮，收起上次的回放
@@ -3092,7 +3237,9 @@ function runForecast(context){
   setThinking(true, '正在用模型推演前方路况…');
   _currentCandidates = [];
   _customCandidates = [];                  // 新提问：用户自定义的方向一并清空
-  _contextTags = []; renderContextTags(); // v0.9.25：新提问清空「本轮纳入」的关联（属本次探索的塑造，不跨任务残留）
+  // v0.9.37：补充当前会话时保留用户已「纳入」的关联（属本会话塑造，不该被补充冲掉）。
+  // 新提问（默认）仍清空，维持 v0.9.25「不跨任务残留」语义。
+  if (!opts.preserveTags){ _contextTags = []; renderContextTags(); }
   hideCompare();
   renderBranchCards([]);
 
@@ -4309,13 +4456,38 @@ document.getElementById('rcClose').addEventListener('click', hideResultCard);
    达成度只"知道"不够，要直接给出"拿到结果"的下一步。动作语义与三态对齐：
    - achieved：成果可执行 → 引导带走（复制 / 导出）
    - partial ：成果还半途 → 引导展开完整成果补齐
-   - need_input / 无真实产出：不显示（clarify 卡有自己的补数据引导，不重复）
+   - need_input：v0.9.37 起给「补充信息到当前会话 →」动作（clarify 卡走自己的 dock 回答
+     入口并在 4261 行提前 return，不走本函数；只有「模型返回了文本但判 need_input」的
+     普通卡才需要这里的补充出口，避免用户看着「待补输入」却无处可补）
    全部复用既有函数，不新增 WS 通道、不碰 3D。 */
 function renderCompletionAction(comp, hasReal){
   const box = document.getElementById('rcCompAction');
   if (!box) return;
   box.innerHTML = '';
   box.style.display = 'none';
+  // v0.9.37：need_input 是「模型需要用户输入」的合法态，必须给可点击的补充出口，
+  // 否则用户看着「待补输入」却无处可补——这正是「缺少信息时补充机制没有」的现场。
+  // 它与 achieved/partial 的「有产出才行动」不同：need_input 本就无产出，出口是补充。
+  if (comp === 'need_input'){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '补充信息到当前会话 →';
+    b.dataset.compAct = 'supplement';
+    b.style.cssText = 'padding:4px 9px;border:1px solid #ffb13d66;border-radius:5px;'
+      + 'background:rgba(255,177,61,.14);color:#ffcf7f;cursor:pointer;font-size:11px;';
+    box.appendChild(b);
+    box.style.display = 'flex';
+    box.style.gap = '6px';
+    box.onclick = (e) => {
+      if (!e.target.closest('button[data-comp-act="supplement"]')) return;
+      setInputIntent('supplement');
+      hideResultCard();
+      const inp = document.getElementById('msgInput');
+      if (inp){ inp.focus(); inp.scrollIntoView({block:'nearest', behavior:'smooth'}); }
+      showToast('已切到「补充当前会话」：输入缺口信息，不会清空已走过的路', '#ffcf7f');
+    };
+    return;
+  }
   if (!hasReal) return; // 无真实产出不假装能行动
   let items = [];
   if (comp === 'achieved'){
@@ -4906,9 +5078,62 @@ function recordRun(detail, status){
   return run;
 }
 
+/* v0.9.37：会话脉络视图——把「用户提问/补充」与「执行轮」按时间交织，
+   直观回答「上下文是否连续」。只读投影：数据源是 _runs（真相源）+ _sessionEvents，
+   不改写任何账本、不碰 3D、不改机位。 */
+function renderSessionThread(){
+  const box = document.getElementById('tlThread');
+  if (!box) return;
+  const rows = [];
+  _sessionEvents.forEach(e => rows.push({ ts:e.ts, kind:e.kind, ...e }));
+  _runs.forEach(r => rows.push({ ts:r.ts, kind:'run', run:r }));
+  rows.sort((a,b) => String(a.ts).localeCompare(String(b.ts)));
+  if (!rows.length){
+    box.innerHTML = '<div class="tt-empty">还没有会话记录。发送一个问题或补充信息后，这里会按时间顺序显示「提问 → 补充 → 执行轮」的完整脉络，方便看清上下文是否连续。</div>';
+    return;
+  }
+  box.innerHTML = rows.map(row => {
+    let dot='?', cls='', kind='', text='', meta='';
+    if (row.kind === 'question'){
+      dot='问'; cls='question'; kind='用户提问';
+      text=escHtml(String(row.text||''));
+    } else if (row.kind === 'supplement'){
+      dot='补'; cls='supplement'; kind='用户补充（不重置会话）';
+      text=escHtml(String(row.text||''));
+    } else if (row.kind === 'run'){
+      const r=row.run, m=r.exec||{};
+      dot=String(r.seq); cls='run '+(r.status||'');
+      kind=`第 ${r.seq} 轮 · ${tlStatusText(r.status)}`
+         + (m.completion ? ` · 达成度 ${escHtml((COMPLETION_META[m.completion]||{}).text||m.completion)}` : '');
+      text=escHtml(r.label ? `沿「${r.label}」：` : '')
+         + escHtml(oneLineConclusion(r));
+      meta=`执行来源 ${escHtml(m.source||'—')}${m.elapsed_ms!=null?' · '+tlFmtMs(m.elapsed_ms):''}`
+         + (m.decorative?' · 演示模拟':'')
+         + (m.synthesized?' · 综合终版':'');
+    }
+    return `<div class="tt-row ${cls}"><div class="tt-dot">${dot}</div><div class="tt-body">`
+      + `<div class="tt-kind">${kind}</div><div class="tt-text">${text}</div>`
+      + (meta?`<div class="tt-meta">${meta}</div>`:'') + `</div></div>`;
+  }).join('');
+}
+
+let _tlView = 'runs';   // 'runs' | 'thread'
+function setTlView(view){
+  _tlView = (view === 'thread') ? 'thread' : 'runs';
+  const th = document.getElementById('tlThread');
+  const strip = document.getElementById('tlStrip');
+  const btn = document.getElementById('tlThreadBtn');
+  if (th) th.style.display = _tlView === 'thread' ? '' : 'none';
+  if (strip) strip.style.display = _tlView === 'thread' ? 'none' : '';
+  if (btn) btn.classList.toggle('on', _tlView === 'thread');
+  if (_tlView === 'thread') renderSessionThread();
+  return _tlView;
+}
+
 function renderTimeline(){
   const cnt = document.getElementById('tlCount');
   if (cnt) cnt.textContent = _runs.length;
+  if (_tlView === 'thread') renderSessionThread();
   const sub = document.getElementById('tlSub');
   if (sub){
     const fb = _runs.filter(r => r.forecast.kind === 'local' || r.forecast.kind === 'offline').length;
@@ -5263,6 +5488,7 @@ function exportAllDeliverables(){
 
 document.getElementById('tlExportDeliver')?.addEventListener('click', exportAllDeliverables);
 document.getElementById('tlSynthesize')?.addEventListener('click', startSynthesize);
+document.getElementById('tlThreadBtn')?.addEventListener('click', () => setTlView(_tlView === 'thread' ? 'runs' : 'thread'));
 
 /* ── v0.9.35 发现1：把多轮真实成果综合成一份可直接交付的终版 ──────────
    与「汇总成果 .md」（逐轮原文拼接）不同：这里把所有真实轮次的产出作为素材，
@@ -6950,6 +7176,9 @@ function init(){
   addJourneyNode(startNode);
 
   document.getElementById('sendBtn').addEventListener('click', sendMessage);
+  // v0.9.37：新提问 / 补充当前会话 意图切换
+  document.getElementById('intentAsk')?.addEventListener('click', () => setInputIntent('ask'));
+  document.getElementById('intentSupplement')?.addEventListener('click', () => setInputIntent('supplement'));
   document.querySelectorAll('#legend .spd').forEach(b => {
     b.addEventListener('click', () => {
       document.querySelectorAll('#legend .spd').forEach(x => x.classList.remove('active'));
@@ -7606,12 +7835,40 @@ init();
                csvHasSynthCol:csvHead.includes('exec_synthesized') };
     },
     get journeyLen(){ return journey.length; },
+    // v0.9.37 会话脉络连续性回归钩子
+    get inputIntent(){ return _inputIntent; },
+    setInputIntentForTest(intent){ return setInputIntent(intent); },
+    get lastContextText2(){ return String(_lastContext || ''); },
+    get sessionEvents(){ return _sessionEvents.map(e => ({...e})); },
+    _buildSessionDigestForTest(){ return buildSessionDigest(); },
+    _stripDigestForTest(ctx){
+      const i = String(ctx||'').indexOf(SESSION_DIGEST_BEGIN);
+      if (i < 0) return String(ctx||'');
+      return String(ctx).slice(0,i).trim();
+    },
+    get digestMarkers(){ return { begin:SESSION_DIGEST_BEGIN, end:SESSION_DIGEST_END }; },
+    _driveSupplementForTest(text){
+      const inp = document.getElementById('msgInput');
+      if (inp) inp.value = text || '';
+      return sendSupplement();
+    },
+    get tlView(){ return _tlView; },
+    setTlViewForTest(v){ return setTlView(v); },
+    get sessionThreadText(){ return document.getElementById('tlThread')?.textContent || ''; },
+    get compActionLabels2(){ return Array.from(document.querySelectorAll('#rcCompAction button')).map(b=>b.textContent); },
     // 断点2：驱动一次真实 onExecuteDone，验证后端 completion 透传进账本/结果卡
     _injectExecuteDoneForTest(msg){
       execInfo = { idx:-1, label:'', mode:'choice', done:false };
-      onExecuteDone(Object.assign({ ok:true, source:'llm', output:'测试产出',
-        completion:'achieved', tasks:[], chain:[] }, msg || {}));
+      const m = Object.assign({ ok:true, source:'llm', output:'测试产出',
+        completion:'achieved', tasks:[], chain:[] }, msg || {});
+      onExecuteDone(m);
+      // 把正交标记写回刚生成的 run（execute_done 协议本不带这俩字段，
+      // 真实路径由 onRefineDone/decorative 写入；此处仅为测试能构造对应场景）。
       const last = _runs.length ? _runs[_runs.length-1] : null;
+      if (last && (m.synthesized || m.decorative)){
+        if (m.synthesized) last.exec.synthesized = true;
+        if (m.decorative) last.exec.decorative = true;
+      }
       return { completion:last?.exec?.completion || '', cardCompletion:_activeCardDetail?.completion || '' };
     },
     // 断点10：在 idx=0 构造最小分支位置后走一次 finishExecution，验证 clarify 不推进主轴
