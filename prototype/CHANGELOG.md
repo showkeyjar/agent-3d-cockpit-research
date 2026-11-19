@@ -7,6 +7,92 @@
 
 ---
 
+## v0.9.42 · 2026-11-19 · 3D 指纹环编码进语义分叉树（方向③收官）
+
+承接 v0.9.41 的真指纹，用户选 C 把信号编码进 3D。纯呈现层，不改机位/轨道/到达牌/拾取契约。
+
+- **★ 诚实偏离（相对设计 §2.2）**：原提议「按候选细枝分指纹强度」被推翻——候选还没执行、没有 per-candidate 指纹，把上一步的整轮指纹贴到新候选=冒充。改为**指纹环吸附「现在」节点**（已走过的到达点），语义=「你用什么内部状态走到这里」，是 P3 追溯凭据，与前方待选候选严格分离。
+- **实现**：`buildFingerprintRing` 512 段径向条竖直盘（段长/颜色按 dist[i]/max）+ 底环 + 可点核心（`branchId=-6` 独立拾取，不进分支数组）；animate 每帧 billboard 正对相机（只转环自身，不碰相机/camAnchorYaw）；相机<1.2m 自动隐藏避免贴脸。`pickFingerprint`→`showFingerprintPanel` 展开 512 条直方图 + 来源标注。available 才生成，首次提问不伪造。
+- **位置迭代**：水平环→俯视压成横带；钉 cur 正上方→相机贴脸出画（诊断 ndcZ>1、camDist 0.15m）；自由侧移→压路牌；最终吸附「现在」节点 + 近距离守卫，真实落位（camDist 6.76m）环在屏幕中央、半径 85px、读数清晰不压路牌。
+- **验证**：`test_fingerprint_3d.js` 18/18；全量回归 tree_fork17/rail_camera14/internal_state14/e2e8/timeline42/keyboard22/scenery21/session31 全过，3D 不变量零回退。TL_VERSION→v0.9.42。
+- **研究纪律**：专家 ID 无名（人读模式差异非语义）；方向③四步全部完成，后续属新主题需另立项。
+
+---
+
+## v0.9.41 · 2026-11-19 · 真实专家指纹采集管线接通（A 完成）
+
+承接 v0.9.40 的 2D 凭据层，把后端真实采集管线接通——**真实 execute 的账本第一次拿到 available 的 MoE 专家指纹**（此前恒 unavailable）。纯数据层，不改 execute 语义、不碰 3D 不变量。
+
+- **前置解除**：8083 主力（Qwen3-Coder-Next / 512 专家 / 48 层）经用户授权打上 `--expert-stats` 补丁，写入 `start-local-primary.bat` 持久化（看门狗重启仍带参数），`/experts` 返回 200。判决实验正面：同 prompt r=0.986、同语义簇 r=0.385、跨簇 r=0.058。
+- **采集模块** `backend/expert_state.py`：纯函数 `aggregate_fingerprint`/`finalize` + 异步 `snapshot_total`；端点推导、来源元数据（`llm-expert-stats`/`/experts`/model/512/48/温度 0.6/captured_at/delta/hits）；6 类诚实降级（capture_disabled/source_not_llm/interrupted/no_new_expert_activity/并发守卫/长度不符）。
+- **生成段采集（勿回退）**：`task_tracker._llm_stream` 新增两个只读回调，首个真实 token 到达（prefill 完成）取 before、生成完成取 after，差分只覆盖生成段。★ 根因诊断：裸问题 r=0.978，套执行长模板塌到 0.636（模板 prefill 淹没任务信号，delta ~90→~340）；钉在生成段后真实 execute 判别力 **r_same=0.990 / 异题 max=0.079**，比判决实验更干净。诊断脚本 `D:/tools/diag_temp_effect.py`/`diag_template_effect.py`。
+- **透传修复**：`server.run_execute` 透传 `result.internal_state` → execute_done；前端 `onExecuteDone`/中断分支/`arrivalDetail` 三处补齐透传（漏传=三轮审查 completion 断点同款，会让真指纹恒降级）。`TL_VERSION`→v0.9.41。
+- **验证**：`test_expert_state.py` 25/25、`e2e_expert_execute.py`、`verdict_via_execute.py`（P4 成立）、`ws_e2e_internal_state.py`（真实 WS）、`test_internal_state_e2e.js` 8/8；关键回归 internal_state14/timeline42/tree_fork17/rail_camera14/session_continuity31 全过。
+- **诚实边界**：温度 0.6（execute 实际值）如实标注，非判决实验的 0；P4 模式宣称基于生成段判别力实验，专家 ID 仍是训练涌现的无名 ID（人读模式差异，不读「这个专家管医学」）。
+
+---
+
+## v0.9.40 · 2026-11-19 · 内部状态指纹凭据层（2D，诚实降级）
+
+方向③（把真实激活编码进 v0.9.38 语义分叉拓扑）的第一步：**先落地 2D 凭据层**，纯数据层、不碰 3D。
+配套研究：`docs/PROBE-ACTIVATION-VIZ.md`（隔离探针）+ `docs/ACTIVATION-IN-FORK-TOPOLOGY.md`（设计 + 判决反转）+ `tools/activation-topology-demo.html`（真实数据 demo）。
+
+- **★ 判决反转**：探针原判「路由是噪声」被推翻——那个结论用了逐 token 尾部 16 条采样（噪声层）+ 256-token 滑窗污染。干净实验（重启清窗、温度 0）证明：同 prompt 重跑聚合分布 **r=1.000**，不同 prompt 两两 **r=0.017–0.157**。即「逐 token 是噪声，整段聚合专家分布是稳定的 prompt-specific 真实指纹」。
+- **账本凭据字段**：`recordRun` 每条 exec 增加 `internal_state`，只认后端 execute_done 下发的 `detail.internal_state`，缺省 `{status:'unavailable',reason:'not_collected'}`；规范化函数 `normInternalState` 严格校验（空/非数值 dist 一律降级，不让垃圾数据冒充 available）。与 source 四态、decorative/synthesized 正交。
+- **2D 详情可核对**：时间线详情增「内部状态指纹」行——available 显示专家数/层数/温度/Top + 「展开核对」按钮（60 维指纹条 + 来源/端点/模型/采集时间）；unavailable 明写「当前服务未开放 expert 路由统计，不伪造指纹」。
+- **导出**：JSON summary 增 `internal_state_available` 计数；CSV 增 `internal_state_status/source/dist/top` 四列。
+- **诚实边界**：当前 8083 主力无 `/experts`（未打 expert-stats 补丁），所以真实运行时该凭据恒为 unavailable——**绝不伪造**。采集管线（后端探测 + 主力打补丁）留待大模型复测有正面结果后再接，避免用真数据演新剧场。
+- **测试**：新增 `test_internal_state.js` 14/14（缺省降级/available 渲染/残缺数据守卫/导出/3D 不变量）；`test_timeline.js` 42/42（版本号断言改为格式校验，future-proof）；tree_fork 17/17、rail_camera 14/14、copy_naturalness 12/12 无回退。repo↔LIVE 已同步。
+
+---
+
+## v0.9.39 · 2026-11-19 · 路牌文案去机械化（内容层 + 呈现层）
+
+用户进一步澄清：v0.9.38 改的是分叉**几何**，但「机械」其实在**路牌文字表述**——四条路牌的
+副标题/底栏是同一个模子。核实真实推演文案，根因两处：① 后端生成 prompt 的示例本身就是套话
+（`查相关数据|结论要有依据|检索,整理|更准确`、`…|用户关注的外部环境|…|贴合主题`），小模型照抄，
+且「为什么」与「理由」两列语义重叠导致 sub/rationale 同质；② 前端四处候选牌统一
+`N 步可达 · 双击出发` / `从这一层深入` 兜底模板。
+
+- **后端 prompt 重写**（`forecaster/llm_forecaster.py`）：示例换成自然口吻并明确「考虑 vs 换来什么」
+  要错开、禁套话词、steps 要带业务对象；配套放宽解析截断（steps 8→14、sub 30→48、rationale 24→36、
+  max_tokens 200→340），否则完整句被截成半句。
+- **套话解析后兜底** `naturalize_copy()`（纯函数）：只替换命中套话的 sub/rationale 与裸动词 steps，
+  素材只取真实 topic/anchor/用户短语/label（不编造），按索引轮换模板避免「修完又整齐划一」；
+  好文案一字不动。真实验证：风电误差来源四条候选的考虑/动作/换来各不相同且带真实对象
+  （模型版本/极端天气/SCADA/塔影），套话消失。
+- **本地兜底模板** `DIRECTIONS` 六条 sub/rationale 改成各自口吻（不再套同一「围绕X兼顾Y」壳）。
+- **前端文案去模板** `signCopy()`（纯函数，`index.html`）：候选牌 sub 优先自身内容、rationale 次之、
+  全空才按索引取中性句；底栏六套操作措辞轮换 + 写入候选首步动作，保留「双击」可点契约。
+  五处候选牌调用点（直道/顺序/choice 树状/未来牌/自定义继续）全部接入；牌高 +2.7、机位/轨道/
+  到达牌零改动。真实截图确认四牌文字各异、无统一套话。
+- **测试**：`test_copy_naturalness_backend.py`（18/18，纯函数确定性）+ `test_copy_naturalness.js`
+  （12/12，真实推演 + 合成样本 + 不变量）。关键回归：前端 10 项、后端业务词绑定/会话连续性/
+  三轮审查全过。
+- 测试钩子：`signCopyForTest(c,i)` / `signCopiesOfCurrent()`；后端 `naturalize_copy` / `_is_cliche`。
+
+## v0.9.38 · 2026-11-19 · 语义树状分叉（分叉形成自然化）
+
+用户反馈「3D 空间演进路线中分叉的形成有点机械、不够自然」。定位到四个根因：① 所有岔路从当前点
+一点放射（像扇骨）；② 终点等半径、角度均匀铺开（梳齿）；③ 每段弧度/粗细/亮度完全一致；
+④ 后端已下发的 `clusters`（真实语义聚类）只用于凭据条/对照/时间线展示，**从未进入 3D 几何**。
+
+- **用真实 clusters 改拓扑为两级树**：共干（所有候选共用）→ 簇分叉点（同簇共用）→ 候选细枝。
+  同簇候选先一起走一段再散开，异簇在更早的总岔点分开；`clusters` 缺失/用户自定义候选各自成簇，
+  走同一套拓扑（不伪造聚类）。
+- **pos3d 决定非均匀几何**：语义距离决定细枝半径（不再等半径圆弧）、簇内角度（近的挤、远的散）、
+  终点高度与弧度侧偏（每段控制点抬升/侧偏不同）；同簇内部再上下分层，避免兄弟牌互相遮挡；
+  终点高度不再随 rank 单调爬升成一条斜线。
+- **视觉语义分层**：共干/簇分叉段为中性蓝实线、非候选专属（负 branchId，不参与拾取、不被走过时熄灭）；
+  只有候选细枝带候选色 + 待选虚线（正 branchId），保持「走过 → 虚线熄灭、实线补亮」契约。
+- **不变量保持**：牌高偏移仍为 +2.7（点击/拾取测试不动）、机位/轨道/到达牌零改动、不新增完成信号、
+  `source` 四态与 P1 账本口径不变；`?mode=opaque` / `?mode=decorative` 与 B 组共用同一套几何，
+  逐像素一致性不受影响。
+- **回归**：新增 `test_tree_fork.js`（17/17：共干/簇分叉/细枝数量、簇内近异簇远、非等半径、
+  非单调高度、拾取命中、虚线熄灭、clusters 缺失回退、0 JS 错误）。
+
+---
+
 ## v0.9.28 · 2026-11-16 · 去除假进度剧场 + 真·轨道相机 + 分叉信息深度绑定
 
 回应用户现场反馈的三个体验问题，均为执行层/信息层改动，不新增完成信号、不伪造数据。

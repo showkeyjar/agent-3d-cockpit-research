@@ -48,6 +48,7 @@ from llm_forecaster import LLMCandidateSampler
 from projection import project_to_3d, multimodal_projection
 from task_tracker import TaskTracker, AgentExecutor, judge_completion
 import llm_config
+import expert_state   # v0.9.41：真实 MoE 聚合专家指纹采集（P1/P2 凭据，纯数据层）
 
 # ──────────────────────────────────────────────
 # App
@@ -739,6 +740,8 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None, submitt
             "task_kind": task_kind or "",
             "completion": "partial",
             "interrupted": False, "cancel_late": False,
+            # v0.9.41：内部状态指纹缺省不可用（各提前 return 路径也带此契约字段）
+            "internal_state": expert_state.unavailable("not_collected"),
         }
 
         if not context:
@@ -790,6 +793,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None, submitt
                     "completion": result.get("completion", "partial"),
                     "tokens": result.get("tokens", 0),
                     "note": "已由用户中断",
+                    "internal_state": result.get("internal_state") or expert_state.unavailable("interrupted"),
                 })
             else:
                 done.update({
@@ -805,6 +809,9 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None, submitt
                     "question": result.get("question", ""),
                     "task_kind": result.get("task_kind", ""),
                     "completion": result.get("completion", "partial"),
+                    # v0.9.41：内部状态指纹由 executor 紧贴真实 LLM 调用采集，
+                    # 这里只透传；采集关闭/不可达/降级轮 executor 已标 unavailable。
+                    "internal_state": result.get("internal_state") or expert_state.unavailable("not_collected"),
                 })
         except asyncio.TimeoutError:
             # 不发 error：让前端用 execute_done 里的完整 tasks 展示结果卡

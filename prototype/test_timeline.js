@@ -201,7 +201,7 @@ async function newPage(browser, errors) {
   const exp = await page.evaluate(() => ({ json: window.__cockpit._exportRuns('json'), csv: window.__cockpit._exportRuns('csv') }));
   const J = JSON.parse(exp.json);
   check('JSON 含 schema / 版本 / 导出时间 / 会话起点 / summary / runs',
-    J.schema === 'agent-3d-cockpit/runs@1' && J.prototype_version === 'v0.9.17' &&
+    J.schema === 'agent-3d-cockpit/runs@1' && /^v\d+\.\d+\.\d+/.test(J.prototype_version || '') &&
     !!J.exported_at && !!J.session_started_at && !!J.summary && J.runs.length === 4);
   check('summary 四态与三态计数正确',
     J.summary.forecast_llm === 1 && J.summary.forecast_fast === 1 &&

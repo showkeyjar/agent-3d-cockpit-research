@@ -32,6 +32,16 @@ from typing import Any, Callable, Dict, List, Optional
 
 import aiohttp
 
+# v0.9.41：真实 MoE 聚合专家指纹采集（纯数据层，紧贴真实 LLM 调用前后取快照）。
+# 同目录导入；单测从别的 cwd 导入时用相对导入兜底，绝不让采集失败拖垮执行链。
+try:
+    import expert_state
+except ImportError:  # pragma: no cover - 仅在非常规导入路径触发
+    try:
+        from . import expert_state  # type: ignore
+    except ImportError:
+        expert_state = None  # type: ignore
+
 
 # ─── 任务类型 ───────────────────────────────────────────
 
@@ -364,7 +374,8 @@ class AgentExecutor:
         return "[LLM 不可用]"
 
     async def _llm_stream(self, prompt: str, max_tokens: int = 220,
-                          on_chunk=None, cancel_event=None) -> "tuple[str, str]":
+                          on_chunk=None, cancel_event=None,
+                          on_first_token=None, on_generation_done=None) -> "tuple[str, str]":
         """
         流式调用 LLM（OpenAI SSE 协议），返回 (全文, reason)。reason 为空即成功。
 
@@ -412,8 +423,10 @@ class AgentExecutor:
                         except Exception:
                             pass
 
+                first_token_hit = False
+
                 async def handle_line(line: str):
-                    nonlocal n_tokens
+                    nonlocal n_tokens, first_token_hit
                     if not line or line.startswith(":"):
                         return
                     if not line.startswith("data:"):
@@ -430,6 +443,17 @@ class AgentExecutor:
                         return True
                     delta = (choices[0].get("delta") or {}).get("content")
                     if isinstance(delta, str) and delta:
+                        # v0.9.41：首个真实内容 token 到达 = prefill 已完成、生成段开始。
+                        # 此刻取快照作为指纹 before，差分只覆盖生成段，排除模板
+                        # prefill 的路由稀释（长模板会把判别力从 r=0.98 拉到 0.63）。
+                        if not first_token_hit and on_first_token:
+                            first_token_hit = True
+                            try:
+                                r = on_first_token()
+                                if asyncio.iscoroutine(r):
+                                    await r
+                            except Exception:
+                                pass
                         parts.append(delta)
                         buf.append(delta)
                         n_tokens += 1
@@ -444,6 +468,13 @@ class AgentExecutor:
                     if cancel_event is not None and cancel_event.is_set():
                         resp.close()
                         await flush()
+                        if on_generation_done:
+                            try:
+                                r = on_generation_done()
+                                if asyncio.iscoroutine(r):
+                                    await r
+                            except Exception:
+                                pass
                         return "".join(parts).strip(), "interrupted"
                     leftover += raw.decode("utf-8", "ignore")
                     while "\n" in leftover:
@@ -454,6 +485,13 @@ class AgentExecutor:
                 if leftover and leftover.strip():
                     await handle_line(leftover.strip())
                 await flush()
+                if on_generation_done:
+                    try:
+                        r = on_generation_done()
+                        if asyncio.iscoroutine(r):
+                            await r
+                    except Exception:
+                        pass
 
                 text = "".join(parts).strip()
                 if text:
@@ -636,6 +674,37 @@ class AgentExecutor:
         text, reason = "", ""
         note = ""
 
+        # v0.9.41 内部状态指纹：只统计「生成段」的专家路由。
+        # 诊断铁证：裸问题判别力 r=0.978，套上执行长模板后塌到 0.636——模板
+        # prefill 的路由稀释了任务信号。故 before 在首个真实 token 到达时取
+        # （prefill 已完成），after 在生成完成时取，差分只覆盖生成段。
+        # 采集是纯数据层——不新增完成信号、不改变执行语义、不碰 3D。
+        _cap_on = bool(expert_state and expert_state.capture_enabled())
+        expert_before = None
+        expert_after = None
+
+        async def cap_before():
+            nonlocal expert_before
+            if _cap_on:
+                expert_before = await expert_state.snapshot_total(self.llm_url)
+
+        async def cap_after():
+            nonlocal expert_after
+            if _cap_on:
+                expert_after = await expert_state.snapshot_total(self.llm_url)
+
+        def make_internal_state(source_val: str, interrupted_val: bool = False) -> dict:
+            if not _cap_on:
+                return expert_state.unavailable("capture_disabled") if expert_state \
+                    else {"status": "unavailable", "reason": "capture_disabled"}
+            try:
+                return expert_state.finalize(
+                    expert_before, expert_after,
+                    source=source_val, interrupted=interrupted_val,
+                    model=self.llm_model, temperature=0.6)
+            except Exception:
+                return {"status": "unavailable", "reason": "capture_error"}
+
         def interrupted_result() -> Dict:
             """用户中断：如实回传部分文本 + 未完成的任务条，completed=False。
             绝不能走下面的诚实降级模板（那会说「模型未返回有效内容」，
@@ -655,6 +724,7 @@ class AgentExecutor:
                 "tokens": tokens_est,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
                 "note": "已由用户中断",
+                "internal_state": make_internal_state("local", interrupted=True),
             }
 
         if self.use_llm:
@@ -666,7 +736,8 @@ class AgentExecutor:
             if free:
                 text, reason = await self._llm_stream(
                     final_prompt, max_tokens=220, on_chunk=on_chunk,
-                    cancel_event=cancel_event)
+                    cancel_event=cancel_event,
+                    on_first_token=cap_before, on_generation_done=cap_after)
                 if reason == "interrupted":
                     return interrupted_result()
                 # 校验：模型有时仍把任务推回给用户（"建议您访问某某网站"）。
@@ -684,9 +755,14 @@ class AgentExecutor:
                     )
                     await _send_token({"type": "token", "reset": True})
                     parts_out.clear()      # 第一次的流式文本作废，部分结果也跟着作废
+                    # v0.9.41：重试前清空第一次的快照，指纹只对应最终采用的生成段
+                    if _cap_on:
+                        expert_before = None
+                        expert_after = None
                     text2, reason2 = await self._llm_stream(
                         harder, max_tokens=220, on_chunk=on_chunk,
-                        cancel_event=cancel_event)
+                        cancel_event=cancel_event,
+                        on_first_token=cap_before, on_generation_done=cap_after)
                     if reason2 == "interrupted":
                         return interrupted_result()
                     if text2 and not text2.startswith("[") \
@@ -723,6 +799,7 @@ class AgentExecutor:
                     "note": "",
                     "clarify": True,
                     "question": question,
+                    "internal_state": make_internal_state("llm"),
                 }
 
         if text and not text.startswith("["):
@@ -752,6 +829,7 @@ class AgentExecutor:
             "tokens": tokens_est,
             "elapsed_ms": elapsed_ms,
             "note": note,
+            "internal_state": make_internal_state(source),
         }
 
     async def refine(self, context: str, prior_output: str, instruction: str,

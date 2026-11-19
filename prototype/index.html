@@ -692,6 +692,14 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     border-bottom:1px dashed rgba(255,255,255,.055);}
   .tl-detail .td-row span{color:var(--muted);min-width:78px;flex:none;}
   .tl-detail .td-row b{font-weight:500;word-break:break-word;}
+  .td-is-toggle{margin-left:8px;border:1px solid var(--border);background:rgba(255,255,255,.05);
+    color:var(--cyan);border-radius:5px;padding:1px 7px;cursor:pointer;font-size:10px;}
+  .td-is-panel{margin:6px 0 4px 86px;padding:8px 10px;border:1px solid rgba(94,224,255,.22);
+    border-radius:7px;background:rgba(0,0,0,.25);font-size:10.5px;line-height:1.7;color:#a8c8ee;}
+  .td-is-bars{display:flex;align-items:flex-end;gap:1px;height:46px;margin:6px 0;}
+  .td-is-bars i{flex:1;background:var(--cyan);opacity:.75;min-height:1px;}
+  .td-is-bars i.hot{background:#34f5a0;opacity:1;}
+  .td-is-unavail{color:#8fa3c8;font-style:italic;}
   .tl-detail .td-out{margin-top:9px;padding-top:8px;border-top:1px solid var(--border);
     font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:#d7e7ff;}
   .tl-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
@@ -1236,6 +1244,55 @@ function drawArrivalBadgeTag(ctx, W, H, color){
 /* ── 3D 路标标牌：始终面向相机 ──
    画布固定 1024×512（2:1），牌面也按 2:1 建，文字不会被横向拉伸；
    toneMapped:false 避开 ACES 压暗，各向异性过滤 + 深色描边保证远处也锐利。 */
+/* v0.9.39 路牌文案去模板化：从候选真实字段生成差异化的副标题与底栏提示，
+   不再整束牌共用「N 步可达 · 双击出发」「从这一层深入」这类套话。
+   原则：① 只用候选自己的 sub / rationale / steps / label，不编造内容；
+        ② 按候选索引轮换措辞，让四条路读起来是四种走法；
+        ③ 底栏仍明确「双击可出发」的操作契约（可点性提示不丢）。
+   纯函数，供四处候选牌调用 + 测试钩子直接断言，不碰机位/轨道/到达牌。*/
+function _isClicheCopy(s){
+  const t = String(s || '').trim();
+  if (!t) return true;
+  return ['贴合主题','更准确','更稳定','直接相关','结论要有依据','智能体可执行',
+          '信息充分','紧扣主题','信息充分，直接执行'].some(w => t === w || t.startsWith(w));
+}
+function signCopy(c, i){
+  const idx = Math.max(0, Number(i) || 0);
+  const label = String(c?.label || '').trim();
+  const steps = Array.isArray(c?.steps) ? c.steps.map(s => String(s||'').trim()).filter(Boolean) : [];
+  const sub = String(c?.sub || '').trim();
+  const rat = String(c?.rationale || '').trim();
+
+  // 副标题：优先候选自己的 sub（信息量高就用），否则用 rationale，
+  // 都不可用才按索引取中性说法（不再统一「从这一层深入」）。
+  let desc = (!_isClicheCopy(sub) && sub.length >= 4) ? sub
+           : (!_isClicheCopy(rat) && rat.length >= 4) ? rat : '';
+  if (!desc){
+    const fallback = [
+      '这条先摸清情况再往下走', '这条直奔问题本身', '这条换个角度看同一件事',
+      '这条从可核对的线索入手', '这条把问题拆开逐个看', '这条落到具体场景里',
+    ];
+    desc = fallback[idx % fallback.length];
+  }
+
+  // 底栏：六种操作措辞轮换 + 首步动作（若具体）；保留「双击」可点契约。
+  const n = steps.length;
+  const first = n ? steps[0] : '';
+  const hasConcreteFirst = first && first.length >= 4 && !_isClicheCopy(first);
+  const leads = [
+    '双击出发', '双击走这条', '选它就出发', '双击深入', '沿这条走 · 双击', '双击展开这条',
+  ];
+  let hint;
+  if (hasConcreteFirst){
+    // 首步本身带业务对象时，直接把它写进底栏——每条路的起点都不一样。
+    hint = `先${first} · ${leads[idx % leads.length]}`;
+  } else if (n){
+    hint = `${n} 步走完 · ${leads[idx % leads.length]}`;
+  } else {
+    hint = leads[idx % leads.length];
+  }
+  return { label, sub: desc, hint };
+}
 function makeSign(label, sub, color, width=3.4, hint='单击查看 · 双击出发', arrival=false){
   const W = 1024, H = 512;
   const cv = document.createElement('canvas');
@@ -1506,6 +1563,12 @@ let isDriving = false;
 let branchNodeMeshes = [];
 let branchTubes = [];
 let branchSigns = [];
+let forkSegments = [];             // v0.9.38 树状分叉的真实几何段（主干/簇分叉/细枝/虚线），供 2D 核对与回归
+// v0.9.41：内部状态指纹环（真实 MoE 聚合专家分布）。独立于分叉拾取——
+// 只编码「上一步真实执行」的内部状态，挂在「现在」位置，绝不贴到未执行的候选上。
+let _fingerprintRing = null;        // THREE.Group，512 段径向条 + 可点核心
+let _fingerprintMeshes = [];        // 拾取用（独立数组，不进 branchNodeMeshes）
+let _fingerprintData = null;        // 当前环对应的 internal_state（供展开核对）
 let hubNode = null;
 let _arrivalResults = new Map();   // 到达牌 branchId=-2 → 结果数据（点击展开答案）
 let _activeArrivalSign = null;     // F3.2：当前与结果卡联动的到达牌——卡打开时牌持续发光，关闭恢复
@@ -2100,6 +2163,19 @@ function pickScenery(e){
   return (o && o.userData.kind === 'scenery') ? o : null;
 }
 
+/* ── v0.9.41 指纹环拾取：独立于分支，只命中「现在」位置的指纹核心 ── */
+function pickFingerprint(e){
+  if (isDriving || !_fingerprintMeshes.length) return null;   // 行驶中不点，落位静止态才核对
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(_fingerprintMeshes, true);
+  if (!hits.length) return null;
+  let o = hits[0].object;
+  while (o && o.userData.fingerprint === undefined) o = o.parent;
+  return o ? o.userData.fingerprint : null;
+}
+
 /* ── v0.9.20 语义风景：点击回看来源 + 视线带向（机位不动） ── */
 let _scnFocused = null;
 function showSceneryPanel(text, src){
@@ -2145,6 +2221,60 @@ function hideSceneryPanel(){
   const el = document.getElementById('scnPanel');
   if (el){ el.classList.remove('show'); el.style.opacity = '0'; el.style.pointerEvents = 'none'; el.style.transform = 'translateY(-8px)'; }
   if (_scnFocused){ _scnFocused.userData.baseOpacity = 0.38; _scnFocused = null; }  // 恢复风景为「底」
+}
+/* ── v0.9.41 指纹核对面板：展开 512 维专家分布 + 来源标注（P2 可核对） ── */
+function showFingerprintPanel(st){
+  if (!st || st.status !== 'available' || !Array.isArray(st.dist)) return;
+  let el = document.getElementById('fpPanel');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'fpPanel';
+    el.innerHTML =
+      '<div class="fp-head">内部状态指纹 · 上一步真实执行的专家分布' +
+      '<button class="fp-close" title="收起">×</button></div>' +
+      '<div class="fp-src"></div><div class="fp-meta"></div>' +
+      '<div class="fp-bars"></div>' +
+      '<div class="fp-note">这是模型推理时真实激活的 MoE 专家分布（聚合到生成段），' +
+      '不是逐 token 抖动。专家是训练涌现的无名 ID，可读的是模式差异，不是「某专家管某事」。</div>';
+    el.style.cssText = 'position:fixed;right:16px;top:96px;width:340px;max-height:72vh;overflow:auto;padding:14px 16px;' +
+      'border-radius:14px;background:linear-gradient(160deg,rgba(14,22,40,.97),rgba(8,14,28,.97));' +
+      'border:1px solid rgba(95,224,255,.35);box-shadow:0 10px 40px rgba(0,0,0,.5);' +
+      'color:#dfeaff;font-size:12px;z-index:41;opacity:0;pointer-events:none;' +
+      'transition:opacity .25s ease,transform .25s ease;transform:translateY(-8px);';
+    document.body.appendChild(el);
+    el.querySelector('.fp-close').addEventListener('click', hideFingerprintPanel);
+  }
+  const max = Math.max(...st.dist) || 1;
+  el.querySelector('.fp-src').textContent =
+    '来源：' + (st.source || 'llm-expert-stats') + ' · 端点 ' + (st.endpoint || '/experts') +
+    ' · 模型 ' + (st.model || '—');
+  el.querySelector('.fp-meta').textContent =
+    '专家 ' + (st.n_expert || st.dist.length) + ' · 层 ' + (st.n_layers || '—') +
+    ' · 温度 ' + (st.temperature ?? '—') + ' · 本轮 token ' + (st.n_tokens_delta ?? '—') +
+    ' · 采集 ' + (st.captured_at || '—');
+  const bars = el.querySelector('.fp-bars');
+  bars.innerHTML = '';
+  st.dist.forEach((v, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;height:6px;';
+    const idx = document.createElement('span');
+    idx.style.cssText = 'width:30px;text-align:right;color:#7fb8ff;font-size:10px;';
+    idx.textContent = 'E' + i;
+    const track = document.createElement('span');
+    track.style.cssText = 'flex:1;height:4px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;';
+    const fill = document.createElement('span');
+    fill.style.cssText = 'display:block;height:100%;background:#5ee0ff;';
+    fill.style.width = Math.round((v / max) * 100) + '%';
+    track.appendChild(fill);
+    row.appendChild(idx); row.appendChild(track);
+    bars.appendChild(row);
+  });
+  el.classList.add('show');
+  el.style.opacity = '1'; el.style.pointerEvents = 'auto'; el.style.transform = 'translateY(0)';
+}
+function hideFingerprintPanel(){
+  const el = document.getElementById('fpPanel');
+  if (el){ el.classList.remove('show'); el.style.opacity = '0'; el.style.pointerEvents = 'none'; el.style.transform = 'translateY(-8px)'; }
 }
 function focusScenery(sp){
   if (!sp || sp.userData.kind !== 'scenery') return;
@@ -2219,6 +2349,12 @@ function focusBranch(id){
 let _clickTimer = null;
 canvas.addEventListener('click', e => {
   if (dragMoved) return;
+  // v0.9.41：指纹环核心优先拾取（「现在」位置，与分支牌不重叠）。
+  // 命中=展开核对面板；未命中且面板开着则收起，再走原有分支/风景/后视镜逻辑。
+  const fp = pickFingerprint(e);
+  if (fp){ clearTimeout(_clickTimer); showFingerprintPanel(fp); return; }
+  const _fpEl = document.getElementById('fpPanel');
+  if (_fpEl && _fpEl.classList.contains('show')) hideFingerprintPanel();
   const id = pickBranch(e);
   if (id === -2){
     // 到达牌 = 结果面板的开关：点一下展开、再点一下收起（真正的双向交互）。
@@ -2412,8 +2548,49 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.17';
+const TL_VERSION = 'v0.9.42';
 const TL_SESSION_STARTED = new Date().toISOString();
+
+/* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
+   把「本轮真实执行的聚合专家分布」作为 P1/P2 凭据进账本/详情/导出。
+   数据源纪律：只接受后端 execute_done 下发的 detail.internal_state；
+   当前 8083 主力未开放 /experts（expert-stats 未打补丁），拿不到真指纹——
+   此时一律标 unavailable，绝不伪造、绝不用探针样例数据冒充本轮执行凭据。
+   字段契约（与 PROBE-ACTIVATION-VIZ / ACTIVATION-IN-FORK-TOPOLOGY 对齐）：
+     { status:'available', source:'llm-expert-stats', endpoint:'/experts',
+       model:'<gguf>', n_expert:60, n_layers:24, temperature:0,
+       dist:[...], top_experts:[...], captured_at:'<iso>' }
+     { status:'unavailable', reason:'expert_stats_not_enabled', ... }
+   这是纯数据层：不改机位/轨道/到达牌/拾取，不碰 3D 不变量。 */
+function normInternalState(raw){
+  if (!raw || typeof raw !== 'object') {
+    return { status:'unavailable', reason:'not_collected' };
+  }
+  const st = String(raw.status || '');
+  if (st === 'available'){
+    // 只接受真正的数值（排除 null→0 之类的伪装），且须为正数（命中占比不会是 0/负）
+    const dist = Array.isArray(raw.dist)
+      ? raw.dist.filter(x => (typeof x === 'number' || (typeof x === 'string' && x.trim() !== '')) && Number.isFinite(Number(x)) && Number(x) > 0)
+                 .map(x => Number(x))
+      : [];
+    if (!dist.length) return { status:'unavailable', reason:'empty_dist' };
+    const top = Array.isArray(raw.top_experts) ? raw.top_experts.slice(0, 8) : [];
+    return {
+      status:'available',
+      source:String(raw.source || 'llm-expert-stats'),
+      endpoint:String(raw.endpoint || '/experts'),
+      model:String(raw.model || ''),
+      n_expert:Number.isFinite(raw.n_expert) ? raw.n_expert : dist.length,
+      n_layers:Number.isFinite(raw.n_layers) ? raw.n_layers : null,
+      temperature:Number.isFinite(raw.temperature) ? raw.temperature : null,
+      dist, top_experts:top,
+      captured_at:String(raw.captured_at || ''),
+    };
+  }
+  return { status:'unavailable', reason:String(raw.reason || 'expert_stats_not_enabled') };
+}
+const INTERNAL_STATE_UNAVAILABLE = { status:'unavailable', reason:'expert_stats_not_enabled' };
+
 const TL_STATUS = {
   done:        { text:'完成',   color:'#34f5a0' },
   failed:      { text:'未走通', color:'#ffb13d' },
@@ -3334,6 +3511,71 @@ function buildNowMarker(pos){
   return g;
 }
 
+/* ── v0.9.41 内部状态指纹环（3D，真实 MoE 聚合专家分布）──────────────
+   语义纪律：这是「上一步真实执行」留下的内部状态，挂在「现在」位置——
+   「你用什么内部状态走到了这里」。绝不贴到前方未执行的候选细枝上（那里没有指纹）。
+   只编码聚合 dist（512 维），不编码逐 token（=新剧场）；unavailable 不生成。
+   不碰机位/轨道/到达牌/分支拾取：独立数组 + 独立拾取函数。 */
+function buildFingerprintRing(pos, st, yaw){
+  const dist = st && st.status === 'available' && Array.isArray(st.dist) ? st.dist : [];
+  if (!dist.length) return null;
+  const g = new THREE.Group();
+  const n = dist.length;                       // 512（真实专家数）
+  const max = Math.max(...dist) || 1;
+  const R = 0.9;                               // 竖直盘半径（吸附「现在」节点，略小于 nowMarker 外环）
+  const cool = new THREE.Color('#5ee0ff'), warm = new THREE.Color('#ffb13d');
+  // 512 段径向条（本地 XY 平面，整组转向相机 → 从任意机位都读得出圆盘）。
+  // 长度 = 该专家命中占比（归一化到 max）。真信号，逐段可读。
+  for (let i = 0; i < n; i++){
+    const f = Math.max(0, Math.min(1, dist[i] / max));
+    const a = (i / n) * Math.PI * 2;
+    const len = 0.05 + f * 0.26;
+    const r0 = R, r1 = R + len;
+    const pts = [
+      new THREE.Vector3(Math.cos(a)*r0, Math.sin(a)*r0, 0),
+      new THREE.Vector3(Math.cos(a)*r1, Math.sin(a)*r1, 0),
+    ];
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const col = cool.clone().lerp(warm, f);
+    const mat = new THREE.LineBasicMaterial({color:col, transparent:true,
+      opacity:0.26 + f*0.42, blending:THREE.AdditiveBlending, depthWrite:false});
+    g.add(new THREE.Line(geo, mat));
+  }
+  // 底环：明确这是一圈「指纹刻度」，不是路
+  const base = new THREE.Mesh(new THREE.TorusGeometry(R, 0.01, 4, 64),
+    new THREE.MeshBasicMaterial({color:0x5ee0ff, transparent:true, opacity:0.18,
+      blending:THREE.AdditiveBlending, depthWrite:false}));
+  g.add(base);
+  // 可点核心：点开 512 维直方图 + 来源核对（独立 userData.fingerprint）
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 1),
+    new THREE.MeshBasicMaterial({color:0x9fd8ff, transparent:true, opacity:0.5,
+      blending:THREE.AdditiveBlending, depthWrite:false}));
+  core.userData.fingerprint = st;
+  g.add(core);
+  g.userData.fingerprint = st;
+  g.userData.branchId = -6;   // 专用负 id，不参与分支拾取/熄灭
+  // 吸附到「现在」节点（不是自由漂浮——自由位置会随语义变化压到任意路牌）。
+  // nowMarker 双环在 y=pos-0.2、半径 1.1/1.55；指纹竖直盘挂中心 y+1.2、半径 0.9，
+  // billboard 正对相机。真实落位时相机在 now 后方 cam.dist 处，环稳定出现在下方空区。
+  const yw = yaw || 0;
+  g.position.set(pos[0], pos[1] + 1.2, pos[2]);
+  // 环绕 Y 初始朝向视线；animate 每帧 billboard 覆盖为完全正对相机（只转环自身）。
+  g.rotation.y = Math.atan2(Math.cos(yw), Math.sin(yw));
+  _fingerprintMeshes = [core];
+  _fingerprintData = st;
+  return g;
+}
+
+function clearFingerprintRing(){
+  if (_fingerprintRing){
+    roadGroup.remove(_fingerprintRing);
+    _fingerprintRing.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  }
+  _fingerprintRing = null;
+  _fingerprintMeshes = [];
+  _fingerprintData = null;
+}
+
 /* ── 应用推演结果 ── */
 function applyForecastResult(msg){
   _lastForecastMsg = msg;   // 保存完整推演结果，回退后重建岔路
@@ -3399,9 +3641,19 @@ function applyForecastResult(msg){
 
   drawLayerRings(candidates);   // 多模态分层可视化
 
+  // v0.9.41：内部状态指纹环——取「上一步真实执行」的指纹挂在「现在」位置。
+  // 只认 available；首次提问 _runs 为空 → null → 不生成（绝不伪造）。
+  clearFingerprintRing();
+  const _fpState = _runs.length ? (_runs[_runs.length-1].exec.internal_state || null) : null;
+  if (_fpState && _fpState.status === 'available'){
+    _fingerprintRing = buildFingerprintRing(cur, _fpState, travelYaw);
+    if (_fingerprintRing) roadGroup.add(_fingerprintRing);
+  }
+
   // ── 直道模式：一条路走到底，没有岔路 ──
   if (mode === 'direct'){
     const c = candidates[0] || {label:'执行', sub:'', color:'#34f5a0'};
+    const _copy = signCopy(c, 0);
     const runLen = 4.2 + (1 - tight) * 1.8;   // 越确定，直道越长
     const fx = Math.cos(travelYaw), fz = Math.sin(travelYaw);
     const end = [cur[0] + fx*runLen, cur[1] + 0.2, cur[2] + fz*runLen];
@@ -3412,8 +3664,7 @@ function applyForecastResult(msg){
     orb.userData.branchId = 0;
     roadGroup.add(orb);
     branchNodeMeshes.push(orb);
-    const _n = (c.steps && c.steps.length) ? c.steps.length : 0;
-    const sign = makeSign(c.label, c.sub || '信息充分，直接执行', c.color, 3.4, _n ? `${_n} 步直达 · 双击出发` : '双击出发');
+    const sign = makeSign(c.label, _copy.sub, c.color, 3.4, _copy.hint);
     sign.position.set(end[0], end[1] + 2.7, end[2]);
     sign.userData.branchId = 0;
     roadGroup.add(sign);
@@ -3472,10 +3723,10 @@ function applyForecastResult(msg){
       roadGroup.add(orb);
       branchNodeMeshes.push(orb);
 
-      // 3D 路标：序号 + 做什么
-      const _n = (c.steps && c.steps.length) ? c.steps.length : 0;
-      const sign = makeSign(`${i+1}. ${c.label}`, c.sub || '', color, 3.6,
-                            `第 ${i+1} 站 · ${_n ? `${_n} 步 · ` : ''}双击单独执行`);
+      // 3D 路标：序号 + 做什么（v0.9.39：副标题/底栏从候选字段差异生成）
+      const _copy = signCopy(c, i);
+      const sign = makeSign(`${i+1}. ${c.label}`, _copy.sub, color, 3.6,
+                            `第 ${i+1} 站 · ${_copy.hint}`);
       sign.position.set(bpos[0], bpos[1] + 2.9, bpos[2]);
       sign.userData.branchId = i;
       roadGroup.add(sign);
@@ -3486,59 +3737,126 @@ function applyForecastResult(msg){
     return;
   }
 
-  // ── 选择模式：从「现在」向前扇形分岔，虚线 = 还没走 ──
+  // ── 选择模式：语义树状分叉（v0.9.38）──
+  // 后端 clusters 是真实候选聚类：同簇候选先共用一段主干，到「簇分叉点」才散开；
+  // 异簇在更早的「总岔点」就分开。终点半径/弧度/高度由 pos3d 的语义距离决定，
+  // 不再是一点放射出的等半径梳齿。clusters/pos3d 缺失时逐候选成簇，拓扑不变。
   if (candidates.length > 0){
     const n = candidates.length;
-    const baseAng = travelYaw;          // 沿旅程主轴展开（与刚走完的路同向，方向对应关系成立）
-    // 分歧度决定总张角：模型越不确定，前方的路叉得越开（用空间说话，不显示数字）
+    const baseAng = travelYaw;
     const totalSpread = n > 1 ? (0.34 + tight * 0.92) : 0;
-    // pos3d 来自后端力导向投影：按语义 X 排序 → 语义近的路牌相邻；
-    // 相邻语义距离再调间距，做到「近的挤、远的散」，且强制归一化避免重叠。
-    const px = candidates.map(c => (Array.isArray(c.pos3d) ? Number(c.pos3d[0]) : 0) || 0);
-    const order = [...Array(n).keys()].sort((a, b) => px[a] - px[b]);
-    const rank = new Array(n);
-    order.forEach((orig, r) => { rank[orig] = r; });
-    const gapW = [0.55];
-    for (let k = 1; k < n; k++){
-      gapW.push(0.55 + Math.min(1, Math.abs(px[order[k]] - px[order[k-1]]) / 6) * 1.1);
+    const num = (c, k) => { const v = Array.isArray(c.pos3d) ? Number(c.pos3d[k]) : 0; return Number.isFinite(v) ? v : 0; };
+    const px = candidates.map(c => num(c, 0));
+    const py = candidates.map(c => num(c, 1));
+    const pz = candidates.map(c => num(c, 2));
+
+    // ① 聚类分组：后端簇优先；未覆盖的候选（含自定义方向）各自成簇
+    const rawClusters = _lastForecastMeta && _lastForecastMeta.clusters;
+    let groups = [];
+    const seen = new Set();
+    if (Array.isArray(rawClusters)){
+      for (const g of rawClusters){
+        const members = (Array.isArray(g) ? g : []).filter(i => Number.isInteger(i) && i >= 0 && i < n && !seen.has(i));
+        if (members.length){ members.forEach(i => seen.add(i)); groups.push(members); }
+      }
     }
+    for (let i = 0; i < n; i++) if (!seen.has(i)) groups.push([i]);
+    // 按语义 X 排序簇，保证从左到右的读数顺序与投影一致
+    const rawGpx = groups.map(g => g.reduce((s, i) => s + px[i], 0) / g.length);
+    const gOrder = groups.map((_, gi) => gi).sort((a, b) => rawGpx[a] - rawGpx[b]);
+    groups = gOrder.map(gi => groups[gi]);
+    const gpx = gOrder.map(gi => rawGpx[gi]);
+    const groupOf = new Array(n);
+    groups.forEach((g, gi) => g.forEach(i => { groupOf[i] = gi; }));
+
+    // ② 簇角度：语义间距大的簇分得更开（沿用旧 gapW 权重，作用在簇中心）
+    const G = groups.length;
+    const gapW = [0.55];
+    for (let k = 1; k < G; k++) gapW.push(0.55 + Math.min(1, Math.abs(gpx[k] - gpx[k-1]) / 6) * 1.1);
     const wsum = gapW.slice(1).reduce((a, b) => a + b, 0) || 1;
-    const angles = new Array(n);
+    const groupAng = new Array(G);
     let acc = -totalSpread / 2;
-    order.forEach((orig, k) => {
+    for (let k = 0; k < G; k++){
       if (k > 0) acc += totalSpread * gapW[k] / wsum;
-      angles[orig] = baseAng + acc;
+      groupAng[k] = baseAng + acc;
+    }
+
+    // ③ 两级骨架：总岔点 F0 → 簇分叉点 J[g] → 候选终点（细枝在下一步铺）
+    const dirOf = a => [Math.cos(a), Math.sin(a)];
+    const trunkLen = 2.4 + tight * 0.9;
+    const d0 = dirOf(baseAng);
+    const F0 = [cur[0] + d0[0]*trunkLen, cur[1] + 0.18, cur[2] + d0[1]*trunkLen];
+    const J = groups.map((_, gi) => {
+      const dg = dirOf(groupAng[gi]);
+      const len = 2.0 + tight * 1.0 + (gi % 2) * 0.35;
+      return [F0[0] + dg[0]*len, F0[1] + 0.22 + (gi % 2) * 0.12, F0[2] + dg[1]*len];
     });
-
-    candidates.forEach((c, i) => {
-      const color = c.color || '#ff5fe0';
-      const p3 = Array.isArray(c.pos3d) ? c.pos3d : [0, 0, 0];
-      const ang = angles[i];
-      const depth = Math.max(-1, Math.min(1, (Number(p3[2]) || 0) / 8));
-      const r = 9.2 + depth * 2.2;
-      const height = Math.max(-1, Math.min(1, (Number(p3[1]) || 0) / 8));
-      const bpos = [
-        cur[0] + Math.cos(ang) * r,
-        cur[1] + (rank[i] - (n-1)/2) * 0.55 + height * 0.5,
-        cur[2] + Math.sin(ang) * r
-      ];
-      _branchPositions.push(bpos);
-
-      const mid = [(cur[0]+bpos[0])/2, (cur[1]+bpos[1])/2 + 1.1, (cur[2]+bpos[2])/2];
-
-      // 底色细暗管
-      const tube = glowTube([cur, mid, bpos], 0.055, color, 0.22, 30);
-      tube.userData.isBranch = true;
-      tube.userData.branchId = i;
+    // 弯曲控制点：每段的抬升/侧偏都不同，避免所有路是同一条抛物线
+    const bend = (a, b, lift, side) => {
+      const mx = (a[0]+b[0])/2, mz = (a[2]+b[2])/2;
+      const dx = b[0]-a[0], dz = b[2]-a[2], len = Math.hypot(dx, dz) || 1;
+      return [mx - dz/len*side, (a[1]+b[1])/2 + lift, mz + dx/len*side];
+    };
+    forkSegments = [];
+    const addSegment = (points, radius, color, opacity, meta) => {
+      const tube = glowTube(points, radius, color, opacity, 30);
+      Object.assign(tube.userData, meta);
+      tube.userData.forkPath = points.map(p => p.slice());
       roadGroup.add(tube);
       branchTubes.push(tube);
+      forkSegments.push({ kind: meta.kind, branchId: meta.branchId, group: meta.forkGroup, points: tube.userData.forkPath });
+      return tube;
+    };
+    // 主干共用：非候选专属，branchId 为负——不参与拾取，也不会被 markBranchTravelled 熄灭
+    addSegment([cur, bend(cur, F0, 0.3, 0), F0], 0.075, '#8fd0ff', 0.42,
+               { kind:'trunk', branchId:-11, isBranch:false });
+    // 簇分叉段：同簇共用、中性色，视觉上直接读出「这几条先一起走」
+    groups.forEach((_, gi) => {
+      addSegment([F0, bend(F0, J[gi], 0.42 + (gi % 2) * 0.2, gi % 2 ? 0.22 : -0.22), J[gi]],
+                 0.065, '#7fb8ff', 0.38, { kind:'group', branchId:-100-gi, forkGroup:gi, isBranch:false });
+      const jm = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
+        new THREE.MeshBasicMaterial({color:0x7fb8ff, transparent:true, opacity:0.55, depthWrite:false}));
+      jm.position.set(...J[gi]); jm.userData.branchId = -120-gi; jm.userData.forkGroup = gi;
+      roadGroup.add(jm); branchTubes.push(jm);
+      forkSegments.push({ kind:'junction', group:gi, points:[J[gi].slice()] });
+    });
+
+    // ④ 候选细枝：真正的「待选」段，颜色=候选色 + 虚线
+    const intraSpread = Math.min(0.30, totalSpread / Math.max(2, n) * 1.8);
+    candidates.forEach((c, i) => {
+      const gi = groupOf[i];
+      const g = groups[gi];
+      const semanticDiv = Math.min(1, Math.abs(px[i] - gpx[gi]) / 6);
+      const localIdx = g.indexOf(i);
+      // 同簇内按语义 X 微展开；px 全同则用序号给最小间隔，避免牌重叠
+      const xOff = Math.min(1, Math.abs(px[i] - gpx[gi]) / 3) * (px[i] >= gpx[gi] ? 1 : -1);
+      const jitter = g.length > 1 ? (localIdx - (g.length-1)/2) * 0.06 : 0;
+      const ang = groupAng[gi] + (xOff * 0.72 + jitter) * intraSpread;
+      const depth = Math.max(-1, Math.min(1, pz[i] / 8));
+      const height = Math.max(-1, Math.min(1, py[i] / 8));
+      const r = 8.0 + depth * 2.0 + semanticDiv * 1.0;
+      // 高度按语义高度 + 簇序号错落，不再随 rank 单调爬升成一条斜线；
+      // 同簇内部再上下分层——共用同一段骨架的兄弟牌若只靠小角度分开会互相遮挡。
+      const siblingLift = g.length > 1 ? (localIdx - (g.length-1)/2) * 2.2 : 0;
+      const dy = height * 0.9 + ((gi % 3) - 1) * 0.42 + semanticDiv * 0.3 + siblingLift;
+      const bpos = [cur[0] + Math.cos(ang)*r, cur[1] + dy, cur[2] + Math.sin(ang)*r];
+      _branchPositions.push(bpos);
+
+      const twigLift = 0.35 + semanticDiv * 0.3 + ((i % 2) ? 0.12 : 0);
+      const twigSide = ((i % 2) ? 0.18 : -0.18) * (0.6 + semanticDiv);
+      const twig = [J[gi], bend(J[gi], bpos, twigLift, twigSide), bpos];
+      const color = c.color || '#ff5fe0';
+      addSegment(twig, 0.05 + semanticDiv * 0.012, color, 0.24 + tight * 0.06,
+                 { kind:'twig', branchId:i, isBranch:true, isForkTwig:true, forkGroup:gi });
 
       // 虚线叠加：明确「待选 / 未定」，与已走过的实线粗管强区分
-      const dash = dashedLine([cur, mid, bpos], color, 0.5 + tight * 0.22);
+      const dash = dashedLine(twig, color, 0.5 + tight * 0.22);
       dash.userData.isBranch = true;
       dash.userData.branchId = i;
+      dash.userData.forkGroup = gi;
       roadGroup.add(dash);
       branchTubes.push(dash);
+      forkSegments.push({ kind:'dash', branchId:i, group:gi, points:twig.map(p => p.slice()) });
 
       const orb = nodeOrb(color, 0.38);
       orb.position.set(...bpos);
@@ -3548,9 +3866,10 @@ function applyForecastResult(msg){
       roadGroup.add(orb);
       branchNodeMeshes.push(orb);
 
-      // 3D 路标：这条岔路通向哪里
-      const _n = (c.steps && c.steps.length) ? c.steps.length : 0;
-      const sign = makeSign(c.label, c.sub || '从这一层深入', color, 3.4, _n ? `${_n} 步可达 · 双击出发` : '双击出发');
+      // 3D 路标：高度偏移保持原值 +2.7（点击测试与拾取契约不变）
+      // v0.9.39：用候选索引生成差异化文案，四条路是四种说法（同簇兄弟靠 i 不同也错开）
+      const _copy = signCopy(c, i);
+      const sign = makeSign(c.label, _copy.sub, color, 3.4, _copy.hint);
       sign.position.set(bpos[0], bpos[1] + 2.7, bpos[2]);
       sign.userData.branchId = i;
       roadGroup.add(sign);
@@ -3616,6 +3935,7 @@ function clearLayerRings(){
 /* ── 清除分支 ── */
 function clearBranches(){
   clearLayerRings();
+  clearFingerprintRing();  // v0.9.41：指纹环随新一轮推演重建（available 才重新生成）
   clearFutureSigns();
   clearScenery();          // 新任务/回退：上一轮上下文的概念图卡一并清空，避免不同任务的风景混在一起
   _arrivalResults.clear();
@@ -3635,6 +3955,7 @@ function clearBranches(){
     s.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
   });
   branchSigns = [];
+  forkSegments = [];
   if (nowMarker){
     roadGroup.remove(nowMarker);
     nowMarker.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
@@ -4968,6 +5289,7 @@ const TL_CSV_COLS = [
   'forecast_fork_count','forecast_cost_ms','exec_source','exec_reason',
   'exec_ok','exec_interrupted','exec_clarify','exec_elapsed_ms','exec_tokens',
   'exec_chain','exec_completion','exec_self_rating','exec_decorative','exec_synthesized',
+  'internal_state_status','internal_state_source','internal_state_dist','internal_state_top',
   'output_chars','output','note',
 ];
 
@@ -5058,6 +5380,9 @@ function recordRun(detail, status){
       // 但它是「多次真实产出的改写」而非首次执行证据。正交标记，统计时单列，
       // 且 collectRealOutputs 排除它，避免二次综合把上次终版当原始素材喂进去。
       synthesized: !!detail.synthesized,
+      // v0.9.40：内部状态指纹凭据——只认后端下发的真数据，缺省诚实标 unavailable。
+      // 与 source 四态、decorative/synthesized 正交：它回答「这次执行内部到底激活了什么」。
+      internal_state: normInternalState(detail.internal_state),
     },
     output:String(detail.output ?? ''),
     tasks, note:String(detail.note || ''),
@@ -5213,8 +5538,27 @@ function renderTlDetail(run){
           : '')
       : '主轴：这一轮没有父节点'],
   ];
+  const is = m.internal_state || INTERNAL_STATE_UNAVAILABLE;
+  let isLine, isPanel = '';
+  if (is.status === 'available'){
+    const top = Array.isArray(is.top_experts) ? is.top_experts.join(', ') : '—';
+    isLine = `已采集 · ${is.n_expert} 专家 / ${is.n_layers ?? '—'} 层 · 温度 ${is.temperature ?? '—'} · Top ${top}`
+      + `<button type="button" class="td-is-toggle" id="isToggle">展开核对</button>`;
+    const dist = Array.isArray(is.dist) ? is.dist : [];
+    const mx = Math.max.apply(null, dist.concat([1]));
+    const bars = dist.map(v => `<i class="${v >= mx * 0.82 ? 'hot' : ''}" style="height:${Math.max(2, (v/mx)*100).toFixed(0)}%"></i>`).join('');
+    isPanel = `<div class="td-is-panel" id="isPanel" style="display:none">
+      <div>来源：${escHtml(is.source)} · 端点 ${escHtml(is.endpoint)} · 模型 ${escHtml(is.model || '未记录')}</div>
+      <div>采集于 ${escHtml(is.captured_at || '未记录')} · ${dist.length} 维归一化分布（条高=命中占比，绿=高热专家）</div>
+      <div class="td-is-bars">${bars}</div>
+      <div>专家 ID 无语义命名；这里核对的是「这次执行的真实内部状态指纹」，不是「某专家管某事」。</div>
+    </div>`;
+  } else {
+    isLine = `<span class="td-is-unavail">未采集（${escHtml(is.reason || 'unavailable')}）· 当前服务未开放 expert 路由统计，不伪造指纹</span>`;
+  }
   const html = rows.map(([k, v]) =>
-    `<div class="td-row"><span>${escHtml(k)}</span><b>${escHtml(String(v))}</b></div>`).join('');
+    `<div class="td-row"><span>${escHtml(k)}</span><b>${escHtml(String(v))}</b></div>`).join('')
+    + `<div class="td-row"><span>内部状态指纹</span><b>${isLine}</b></div>` + isPanel;
   box.innerHTML = html + `
     <div class="tl-actions">
       <button type="button" data-act="cmp" data-run="${run.run_id}">加入 / 移出对照</button>
@@ -5222,6 +5566,12 @@ function renderTlDetail(run){
       <button type="button" data-act="fork" data-run="${run.run_id}" class="warn">从这里重走（真实新执行）</button>
     </div>
     <div class="td-out" id="tlOut"></div>`;
+  const tg = box.querySelector('#isToggle'), pn = box.querySelector('#isPanel');
+  if (tg && pn) tg.addEventListener('click', () => {
+    const show = pn.style.display === 'none';
+    pn.style.display = show ? 'block' : 'none';
+    tg.textContent = show ? '收起' : '展开核对';
+  });
   const out = box.querySelector('#tlOut');
   if (out) out.textContent = run.output
     ? `【第 ${run.seq} 轮结果全文】\n` + run.output
@@ -5364,6 +5714,10 @@ function tlFlatRun(r){
     exec_completion:m.completion || '', exec_self_rating:m.self_rating || '',
     exec_decorative:m.decorative ? '1' : '0',
     exec_synthesized:m.synthesized ? '1' : '0',
+    internal_state_status:m.internal_state?.status || 'unavailable',
+    internal_state_source:m.internal_state?.source || '',
+    internal_state_dist:JSON.stringify(m.internal_state?.dist || []),
+    internal_state_top:JSON.stringify(m.internal_state?.top_experts || []),
     output_chars:String(r.output || '').length,
     output:r.output || '', note:r.note || '',
   };
@@ -5405,6 +5759,8 @@ function exportRuns(format){
                  && r.exec.chain.some(c => String(c).startsWith('refine:'))).length,
     // 三轮审查断点4：综合终版轮单列，不与首次执行轮混算 P1 证据
     synthesize_runs:runs.filter(r => r.exec.synthesized === true).length,
+    // v0.9.40：采到真实内部状态指纹的轮数（当前服务未开放统计时为 0，如实呈现）
+    internal_state_available:runs.filter(r => r.exec.internal_state?.status === 'available').length,
   };
   if (format === 'csv') return runsToCsv(runs);
   return JSON.stringify({
@@ -5809,9 +6165,9 @@ function drawFutureSigns(anchorPos){
     roadGroup.add(tube);
     branchTubes.push(tube);
 
-    // 统一句式：主标题=动作 · 副标题=意图 · 底栏=N 步可达
-    const _n = (c.steps && c.steps.length) ? c.steps.length : 0;
-    const sign = makeSign(c.label, c.sub || '从这条线上展开', c.color || '#8a9bbf', 3.2, _n ? `${_n} 步可达 · 双击出发` : '双击出发');
+    // v0.9.39：路牌文案从候选字段差异生成（副标题/底栏不再千篇一律）
+    const _copy = signCopy(c, i);
+    const sign = makeSign(c.label, _copy.sub, c.color || '#8a9bbf', 3.2, _copy.hint);
     sign.position.set(end[0], end[1] + 2.6, end[2]);
     sign.userData.branchId = -3 - i;
     // 未来路牌比上版更亮更大（主角是路牌）：但比当前岔路略暗，层次仍清楚
@@ -5917,8 +6273,8 @@ function travelFuture(i){
   orb.userData.baseEmissive = 0.6;
   roadGroup.add(orb);
   branchNodeMeshes.push(orb);
-  const _n = (c.steps && c.steps.length) ? c.steps.length : 0;
-  const sign = makeSign(c.label, c.sub || '朝着这条线继续前进', c.color || '#5ee0ff', 3.4, _n ? `${_n} 步可达 · 双击出发` : '双击出发');
+  const _copy = signCopy(c, 0);
+  const sign = makeSign(c.label, _copy.sub, c.color || '#5ee0ff', 3.4, _copy.hint);
   sign.position.set(to[0], to[1] + 2.7, to[2]);
   sign.userData.branchId = 0;
   roadGroup.add(sign);
@@ -6491,6 +6847,7 @@ function finishExecution(ok, note='', detail={}){
       chain:detail.chain || ['output'], planned_steps:detail.planned_steps,
       completion:'partial', task_kind:detail.task_kind,
       decorative: !!detail.decorative,
+      internal_state: detail.internal_state,   // v0.9.41：中断轮指纹（后端标 unavailable）
       pos:null,
     };
     inputEnabled(true);
@@ -6575,6 +6932,8 @@ function finishExecution(ok, note='', detail={}){
       task_kind: detail.task_kind,
       // v0.9.32 H2.2 C 组：伪执行标记随 detail 透传（数据层如实，呈现层不变）
       decorative: !!detail.decorative,
+      // v0.9.41：内部状态指纹随 detail 透传到到达牌 + 账本（recordRun 从这里取）
+      internal_state: detail.internal_state,
       pos: p ? [p[0], p[1], p[2]] : null,   // F3.2：结果的空间锚点——卡能定位回 3D
       branchLabel: c.label || '',           // F3.2：这条路叫什么（卡上显示"你在哪条路上"）
     };
@@ -6724,6 +7083,9 @@ function onExecuteDone(msg){
     note:msg.note,
     // v0.9.32 H2.2 C 组：伪执行正交标记，透传到账本/导出（present layer 不变）
     decorative:!!msg.decorative, task_kind:msg.task_kind,
+    // v0.9.41：内部状态指纹（真实 MoE 专家分布）随 execute_done 透传进账本。
+    // 与 completion 断点同款——漏透传会让后端真指纹在前端恒降级 unavailable。
+    internal_state:msg.internal_state,
   });
   // 停止请求迟到（生成已正常结束）：如实说明，不把完整答案倒标成中断
   if (msg.cancel_late) showToast('停止请求到达时，本次生成已经结束', '#ffb13d');
@@ -7161,6 +7523,15 @@ function animate(){
   // 地面保持静止：网格缓慢自转会让空间参考系持续漂移，
   // 转视角时产生"整个空间在跟着晃"的错觉，是操纵感别扭的主要来源。
 
+  // v0.9.41：指纹环始终正对相机（billboard），保证从任意视线都读得出圆盘。
+  // 只改环自身朝向，绝不碰相机/机位/camAnchorYaw。
+  if (_fingerprintRing){
+    _fingerprintRing.quaternion.copy(camera.quaternion);
+    // 相机贴脸时（回退到起点/极端机位）隐藏，避免环被近裁剪面裁成碎片或糊住画面
+    const _wp = new THREE.Vector3(); _fingerprintRing.getWorldPosition(_wp);
+    _fingerprintRing.visible = camera.position.distanceTo(_wp) > 1.2;
+  }
+
   if (renderer.xr.isPresenting){ if (window.__p6Env) window.__p6Env.xrRenders++; renderer.render(scene, camera); }
   else if (stereoOn) renderStereo();
   else { if (window.__p6Env) window.__p6Env.composerRenders++; composer.render(); }
@@ -7224,7 +7595,43 @@ init();
   window.__p6Env = { stereoRenders: 0, composerRenders: 0, xrRenders: 0 };
   window.__cockpit = {
     get candidates() { return _currentCandidates; },
+    // v0.9.39：路牌文案纯函数钩子，供多样性断言（不依赖 3D 场景）
+    signCopyForTest(c, i) { return signCopy(c, i); },
+    signCopiesOfCurrent() { return (_currentCandidates || []).map((c, i) => signCopy(c, i)); },
     get positions() { return _branchPositions; },
+    get forkTopology() { return forkSegments.map(s => ({ kind:s.kind, branchId:s.branchId, group:s.group, points:s.points.map(p => p.slice()) })); },
+    get forkDashVisibility() { return branchTubes.filter(t => t.isLine && t.userData.branchId >= 0).map(t => ({ id:t.userData.branchId, visible:t.visible })); },
+    // v0.9.41 指纹环钩子（3D 编码，真实聚合分布）
+    get fingerprintRing() {
+      if (!_fingerprintRing) return { present:false };
+      const st = _fingerprintData || {};
+      const dist = Array.isArray(st.dist) ? st.dist : [];
+      return { present:true, segCount:dist.length, sampleCount:_fingerprintRing.children.length,
+               maxDist:dist.length ? Math.max(...dist) : 0,
+               minDist:dist.length ? Math.min(...dist) : 0,
+               source:st.source || '', endpoint:st.endpoint || '', model:st.model || '',
+               n_expert:st.n_expert || 0, status:st.status || 'unavailable',
+               branchId:_fingerprintRing.userData.branchId };
+    },
+    _showFingerprintPanelForTest(st){ showFingerprintPanel(st || _fingerprintData); return true; },
+    get fingerprintPanelText(){ const el = document.getElementById('fpPanel'); return el ? el.textContent : ''; },
+    get fingerprintPanelOpen(){ const el = document.getElementById('fpPanel'); return !!(el && el.classList.contains('show')); },
+    _pickFingerprintAtForTest(x, y){ return !!pickFingerprint({ clientX:x, clientY:y }); },
+    // 诊断：环中心的屏幕投影 + 屏幕半径，验证「可读但不抢戏」
+    fingerprintProbe(){
+      if (!_fingerprintRing) return null;
+      const wp = new THREE.Vector3(); _fingerprintRing.getWorldPosition(wp);
+      const ndc = wp.clone().project(camera);
+      const edge = wp.clone().add(new THREE.Vector3(0.9, 0, 0).applyQuaternion(_fingerprintRing.quaternion)).project(camera);
+      const sx = (ndc.x*0.5+0.5)*window.innerWidth, sy = (-ndc.y*0.5+0.5)*window.innerHeight;
+      const ex = (edge.x*0.5+0.5)*window.innerWidth;
+      return { world:[wp.x,wp.y,wp.z].map(v=>Math.round(v*100)/100),
+               screen:[Math.round(sx),Math.round(sy)], ndcZ:Math.round(ndc.z*1000)/1000,
+               screenRadiusPx:Math.round(Math.abs(ex-sx)),
+               camDist:Math.round(camera.position.distanceTo(wp)*100)/100 };
+    },
+    // 只走「点亮这条候选」的最小路径，不触发到达换场（避免换场清场掩盖虚线熄灭断言）
+    _markBranchForTest(idx){ markBranchTravelled(idx); return true; },
     get future() { return _futureCandidates; },
     get signs() { return branchSigns; },
     get results() { return _arrivalResults; },
@@ -7383,6 +7790,15 @@ init();
     // v0.9.17 · 2D 时间线 / 逐轮账本 / 导出读数
     get runs() { return _runs.map(({detail, ...r}) => ({...r})); },
     get runCount() { return _runs.length; },
+    // v0.9.40 内部状态指纹凭据的读数与注入钩子
+    get lastInternalState(){ return _runs.length ? JSON.parse(JSON.stringify(_runs[_runs.length-1].exec.internal_state || {})) : null; },
+    _setInternalStateForTest(runId, raw){
+      const r = runId ? _runs.find(x => x.run_id === runId) : _runs[_runs.length-1];
+      if (!r) return null;
+      r.exec.internal_state = normInternalState(raw);
+      if (_tlSelected === r.run_id) renderTlDetail(r);
+      return JSON.parse(JSON.stringify(r.exec.internal_state));
+    },
     get timelineOpen() { return document.getElementById('timelinePanel').classList.contains('show'); },
     get timelineCount() { return document.getElementById('tlCount').textContent; },
     get timelineNodes() { return document.querySelectorAll('#tlStrip .tl-node').length; },

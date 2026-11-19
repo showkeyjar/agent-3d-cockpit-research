@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>激活指纹 × 语义分叉拓扑 · 概念验证</title>
+<style>
+  :root{--bg:#070b14;--panel:#0d1524;--panel2:#111c30;--line:#1d2b44;--cyan:#5ee0ff;--green:#34f5a0;--magenta:#ff5fe0;--amber:#ffc860;--muted:#7b91b6;--text:#dbe8ff;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.6;padding:20px;min-height:100vh;}
+  .wrap{max-width:1280px;margin:0 auto;}
+  h1{font-size:19px;font-weight:600;color:#eaf4ff;letter-spacing:.5px;}
+  .sub{color:var(--muted);font-size:12px;margin-top:4px;}
+  .honest{margin:14px 0 18px;padding:10px 14px;background:#1a1408;border:1px solid #5a4418;border-radius:8px;color:#e8c987;font-size:11.5px;line-height:1.7;}
+  .honest b{color:var(--amber);}
+  .grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;}
+  .card h2{font-size:13px;font-weight:600;color:var(--cyan);margin-bottom:4px;letter-spacing:.4px;}
+  .card .cap{font-size:11px;color:var(--muted);margin-bottom:12px;}
+  canvas{display:block;width:100%;border-radius:8px;background:#060a12;}
+  .tabs{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap;}
+  .tab{padding:6px 12px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:7px;cursor:pointer;font-size:12px;transition:.18s;}
+  .tab:hover{border-color:#2d4266;color:var(--text);}
+  .tab.on{background:#12304a;border-color:var(--cyan);color:var(--cyan);}
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+  .metric{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;}
+  .metric .k{font-size:10.5px;color:var(--muted);}
+  .metric .v{font-size:16px;color:var(--green);font-family:ui-monospace,monospace;margin-top:2px;}
+  .metric .v.warn{color:var(--magenta);}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted);}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  .foot{margin-top:16px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;font-size:11.5px;color:var(--muted);line-height:1.8;}
+  .foot b{color:var(--text);font-weight:600;}
+  .pill{display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;margin-left:6px;}
+  .pill.real{background:#0d3b2a;color:#5ef0b0;}
+  .pill.demo{background:#3a2a0c;color:#ffcf7a;}
+  kbd{background:#1a2740;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px;color:var(--cyan);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>激活指纹 × 语义分叉拓扑 <span class="pill demo">概念验证</span></h1>
+  <div class="sub">方向③可视化探针：把「真实聚合专家分布」编码进 v0.9.38 式语义树状分叉，而非自由粒子云</div>
+
+  <div class="honest">
+    <b>诚实声明</b>：右侧专家指纹 60 维分布 <b>100% 来自隔离探针真实采集</b>（Qwen1.5-MoE / 60 专家 / 温度 0 / 重启清窗，
+    见 <code>docs/PROBE-ACTIVATION-VIZ.md</code> 及本次补充实验）。左侧树状分叉的<b>拓扑骨架是示意</b>（模拟 v0.9.38 的
+    trunk→簇→细枝三级结构），因为真实 clusters 需要与原型 forecast 联动才有；本 demo 只验证「信号编码进结构后读不读得出来」这一件事。
+    编码映射规则是本方案的设计提议，<b>尚未进主线</b>。
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>A · 语义分叉拓扑（骨架示意 + 指纹着色）</h2>
+      <div class="cap">分叉点亮度/细枝粗细 = 该候选对应专家指纹的强度；同簇共享一段共干（v0.9.38 规则）</div>
+      <canvas id="tree" width="620" height="440"></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--cyan)"></i>共干（trunk）</span>
+        <span><i class="dot" style="background:#7fb8ff"></i>簇分叉点（亮度=指纹强度）</span>
+        <span><i class="dot" style="background:var(--magenta)"></i>候选细枝（粗细=专家激活）</span>
+      </div>
+      <div class="tabs" id="treeTabs">
+        <div class="tab on" data-k="A1">潮汐问答</div>
+        <div class="tab" data-k="B">代码任务</div>
+        <div class="tab" data-k="C">医学问答</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>B · 真实聚合专家指纹 <span class="pill real">真实数据</span></h2>
+      <div class="cap">60 个专家的归一化命中分布 · 环形条形（径向长度=该专家被激活占比）</div>
+      <canvas id="radar" width="560" height="380"></canvas>
+      <div class="metrics">
+        <div class="metric"><div class="k">与「潮汐」指纹相关 r</div><div class="v" id="mA1">—</div></div>
+        <div class="metric"><div class="k">与「代码」指纹相关 r</div><div class="v" id="mB">—</div></div>
+        <div class="metric"><div class="k">同 prompt 重跑 r</div><div class="v" id="mSelf">1.000</div></div>
+        <div class="metric"><div class="k">Top 激活专家</div><div class="v" id="mTop" style="font-size:12px">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>怎么读这张图</b>：切换上方任务，看右侧真实指纹如何变化、左侧分叉着色如何随之改变。
+    <b>判决依据</b>（本次补充实验，重启清窗后测）：同一 prompt 重跑两次，聚合分布 <b>r = 1.000</b>（逐位一致）；
+    不同 prompt 两两 <b>r = 0.017–0.157</b>（几乎不相关）。
+    这说明<b>逐 token 路由是噪声，但整段聚合分布是稳定的、prompt-specific 的真实指纹</b>——
+    它够格当 P1/P2 的执行凭据，且因 prompt-specific 而有潜力当 P4 的可感知模式。<br>
+    <b>仍未验证</b>：① 8083 主力（512 专家）上是否同样稳定（本测只用 60 专家小模型）；② 编码进真实 3D 分叉后是否遮挡/干扰既有拾取与到达牌（需回归 test_tree_fork 等）；③ 开启 expert 统计在 Vulkan 上约 -26% 吞吐，主力代价待测。
+  </div>
+</div>
+
+<script>
+const D = {
+  A1: {name:"潮汐问答", v:[0.01536,0.01917,0.02341,0.0244,0.02058,0.01602,0.0127,0.01419,0.01726,0.01951,0.01477,0.02,0.01751,0.01552,0.0171,0.01419,0.01527,0.02042,0.01643,0.01453,0.01295,0.01469,0.01303,0.02133,0.01477,0.01453,0.01735,0.01569,0.01951,0.01984,0.01702,0.01461,0.01594,0.01834,0.00963,0.01336,0.01909,0.02424,0.01685,0.01677,0.01278,0.01353,0.01585,0.01403,0.01843,0.0156,0.01884,0.01411,0.022,0.0132,0.01751,0.01502,0.01942,0.01303,0.0127,0.01311,0.01892,0.01428,0.01967,0.02009]},
+  B:  {name:"代码任务", v:[0.01464,0.01508,0.01394,0.01456,0.01806,0.01552,0.01675,0.01587,0.01657,0.0185,0.01613,0.01955,0.01973,0.01324,0.01631,0.01622,0.01552,0.01543,0.0185,0.01499,0.01815,0.01789,0.01701,0.01649,0.01543,0.01526,0.01666,0.01798,0.01499,0.02131,0.01763,0.01464,0.01649,0.01789,0.01736,0.01657,0.01605,0.01859,0.01543,0.01868,0.01622,0.01508,0.01403,0.01622,0.0164,0.01561,0.01587,0.01622,0.01727,0.01499,0.01745,0.01622,0.01666,0.01833,0.02017,0.01964,0.01315,0.01789,0.01727,0.01964]},
+  C:  {name:"医学问答", v:[0.01562,0.01752,0.01562,0.01329,0.01769,0.01743,0.01778,0.01234,0.01433,0.0189,0.01743,0.01752,0.01441,0.01622,0.0164,0.01217,0.01735,0.01622,0.01415,0.01484,0.01916,0.01959,0.01269,0.0214,0.01458,0.01683,0.01579,0.01527,0.01804,0.01579,0.01683,0.01709,0.01717,0.01933,0.01571,0.01329,0.01812,0.01717,0.01674,0.017,0.01622,0.01579,0.01985,0.01933,0.01786,0.01743,0.01493,0.01812,0.01545,0.01527,0.01786,0.01795,0.0164,0.01648,0.01933,0.01605,0.01847,0.01389,0.01985,0.01864]}
+};
+let cur = "A1";
+function pearson(a,b){const n=a.length,ma=a.reduce((x,y)=>x+y,0)/n,mb=b.reduce((x,y)=>x+y,0)/n;let num=0,da=0,db=0;for(let i=0;i<n;i++){num+=(a[i]-ma)*(b[i]-mb);da+=(a[i]-ma)**2;db+=(b[i]-mb)**2;}return num/Math.sqrt(da*db||1);}
+
+function drawRadar(){
+  const c=document.getElementById('radar'),x=c.getContext('2d'),W=c.width,H=c.height,cx=W/2,cy=H/2+6,R=Math.min(W,H)/2-42;
+  x.clearRect(0,0,W,H);
+  const v=D[cur].v,mx=Math.max(...v),mn=Math.min(...v);
+  // grid rings
+  x.strokeStyle='#1d2b44';x.lineWidth=1;
+  for(let r=1;r<=4;r++){x.beginPath();x.arc(cx,cy,R*r/4,0,7);x.stroke();}
+  const N=v.length;
+  for(let i=0;i<N;i++){
+    const a=i/N*Math.PI*2-Math.PI/2;
+    const norm=(v[i]-mn)/(mx-mn||1);
+    const len=18+norm*(R-24);
+    const x1=cx+Math.cos(a)*14,y1=cy+Math.sin(a)*14, x2=cx+Math.cos(a)*len,y2=cy+Math.sin(a)*len;
+    const hot=norm>0.8;
+    x.strokeStyle=hot?'#34f5a0':(norm>0.55?'#5ee0ff':'#35507a');
+    x.lineWidth=hot?2.6:1.8;x.beginPath();x.moveTo(x1,y1);x.lineTo(x2,y2);x.stroke();
+    if(hot){x.fillStyle='#34f5a0';x.beginPath();x.arc(x2,y2,2.6,0,7);x.fill();}
+  }
+  x.fillStyle='#dbe8ff';x.font='600 13px Segoe UI';x.textAlign='center';
+  x.fillText(D[cur].name,cx,cy-4);
+  x.fillStyle='#7b91b6';x.font='11px Segoe UI';
+  x.fillText('60 experts · normalized',cx,cy+14);
+  // top experts label
+  const top=v.map((val,i)=>[val,i]).sort((a,b)=>b[0]-a[0]).slice(0,5).map(p=>p[1]);
+  document.getElementById('mTop').textContent=top.join(', ');
+  document.getElementById('mA1').textContent=pearson(v,D.A1.v).toFixed(3);
+  document.getElementById('mB').textContent=pearson(v,D.B.v).toFixed(3);
+  document.getElementById('mA1').className='v'+(pearson(v,D.A1.v)>0.9?'':' warn');
+  document.getElementById('mB').className='v'+(pearson(v,D.B.v)>0.9?'':' warn');
+}
+
+function drawTree(){
+  const c=document.getElementById('tree'),x=c.getContext('2d'),W=c.width,H=c.height;
+  x.clearRect(0,0,W,H);
+  const v=D[cur].v,mx=Math.max(...v),mn=Math.min(...v);
+  const nz=i=>(v[i]-mn)/(mx-mn||1);
+  // 示意 clusters：3 簇，每簇 2 候选
+  const clusters=[[0,1],[2,3],[4,5]];
+  const trunkFrom={x:70,y:H/2},F0={x:180,y:H/2};
+  // trunk
+  x.strokeStyle='#5ee0ff';x.lineWidth=4;x.beginPath();x.moveTo(trunkFrom.x,trunkFrom.y);x.lineTo(F0.x,F0.y);x.stroke();
+  x.fillStyle='#5ee0ff';x.beginPath();x.arc(F0.x,F0.y,5,0,7);x.fill();
+  x.fillStyle='#7b91b6';x.font='11px Segoe UI';x.textAlign='left';x.fillText('共干',trunkFrom.x+20,H/2-12);
+  const cols=['#ff5fe0','#5ee0ff','#ffc860'];
+  clusters.forEach((cl,gi)=>{
+    const jy=H/2+(gi-1)*120, J={x:320,y:jy};
+    // 用簇内候选指纹均值做亮度
+    const strength=(nz(cl[0])+nz(cl[1]))/2;
+    x.strokeStyle=`rgba(127,184,255,${0.35+strength*0.5})`;x.lineWidth=2.5;
+    x.beginPath();x.moveTo(F0.x,F0.y);
+    x.quadraticCurveTo(250,(F0.y+jy)/2,J.x,J.y);x.stroke();
+    x.fillStyle=`rgba(127,184,255,${0.5+strength*0.5})`;x.beginPath();x.arc(J.x,J.y,6+strength*4,0,7);x.fill();
+    cl.forEach((ci,k)=>{
+      const ex=520, ey=jy+(k===0?-34:34);
+      const s=nz(ci);
+      x.strokeStyle=cols[ci];x.lineWidth=1.8+s*3.5;x.globalAlpha=0.55+s*0.45;
+      x.beginPath();x.moveTo(J.x,J.y);x.quadraticCurveTo(430,jy+(ey-jy)/2,ex,ey);x.stroke();x.globalAlpha=1;
+      // 候选节点
+      x.fillStyle=cols[ci];x.beginPath();x.arc(ex,ey,4+s*4,0,7);x.fill();
+      x.fillStyle='#dbe8ff';x.font='11px Segoe UI';x.textAlign='left';
+      x.fillText(`候选${ci+1} · 指纹${(s*100).toFixed(0)}%`,ex+10,ey+4);
+    });
+    x.fillStyle='#7b91b6';x.fillText(`簇${gi+1} · 亮度=${(strength*100).toFixed(0)}%`,J.x-28,jy-16);
+  });
+  x.fillStyle='#7b91b6';x.font='10.5px Segoe UI';x.textAlign='left';
+  x.fillText('← 语义结构来自 clusters（示意）　｜　亮度/粗细来自真实专家指纹 →',70,H-16);
+}
+
+function render(){drawRadar();drawTree();}
+document.querySelectorAll('#treeTabs .tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('#treeTabs .tab').forEach(z=>z.classList.remove('on'));
+  t.classList.add('on');cur=t.dataset.k;render();
+}));
+render();
+</script>
+</body>
+</html>
