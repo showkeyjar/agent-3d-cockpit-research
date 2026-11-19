@@ -678,6 +678,12 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
         if not isinstance(planned_steps, list):
             planned_steps = []
         planned_steps = [str(s)[:40] for s in planned_steps[:4]]
+        # v0.9.29 任务类型门控：前端可显式指定 compose（起草类，中性化执行语境），
+        # 后端也会按用户原话自动识别兜底（curl/直连路径同样受保护）。
+        # 只接受三个合法值，其余交后端自动判断，避免客户端伪造未知类型。
+        task_kind = data.get("task_kind")
+        if task_kind not in ("compose", "analysis", "general"):
+            task_kind = None
 
         t0 = time.monotonic()
         done = {
@@ -687,6 +693,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
             "source": "local", "reason": "",
             "chain": [], "note": "", "elapsed_ms": 0, "tokens": 0,
             "planned_steps": planned_steps,
+            "task_kind": task_kind or "",
             "interrupted": False, "cancel_late": False,
         }
 
@@ -718,7 +725,8 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
             result = await asyncio.wait_for(
                 executor.execute(context, candidate_label, planned_steps,
                                  stream_sink=stream_sink,
-                                 cancel_event=cancel_event), timeout=55
+                                 cancel_event=cancel_event,
+                                 task_kind=task_kind), timeout=55
             )
             if result.get("interrupted"):
                 # 用户主动停止：部分文本 + stop 任务条 + 未完成标志。
@@ -731,6 +739,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
                     "chain": result.get("chain", ["output"]),
                     "source": result.get("source", "local"),
                     "reason": "user_cancelled",
+                    "task_kind": result.get("task_kind", ""),
                     "tokens": result.get("tokens", 0),
                     "note": "已由用户中断",
                 })
@@ -746,6 +755,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None):
                     "ok": True,
                     "clarify": result.get("clarify", False),
                     "question": result.get("question", ""),
+                    "task_kind": result.get("task_kind", ""),
                 })
         except asyncio.TimeoutError:
             # 不发 error：让前端用 execute_done 里的完整 tasks 展示结果卡

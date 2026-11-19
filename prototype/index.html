@@ -702,6 +702,12 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   html.mode-opaque #decisionChain,
   html.mode-opaque #decisionBtn{ display:none !important; }
 
+  /* v0.9.28+ · M 阶段 B0 组（3D 联动单归因最小对照）：?mode=transparent-nolink
+     仅隐藏结果卡与 3D 到达牌之间的联动反馈（定位按钮 + 持续发光），
+     结果卡本身与其他 P2/P3/P4 呈现层保留，用于与 B1（v0.9.20 现状）对比。 */
+  html.mode-transparent-nolink .rc-locate-btn{ display:none !important; }
+  html.mode-transparent-nolink [data-act="3d"]{ display:none !important; }
+
   /* v0.9.23 · 实用化：常驻实质进展 HUD（沉浸态不压暗，一眼感知这一步的产出 / 来源 / 进度） */
   #progressHud{
     position:fixed; left:50%; top:54px; transform:translateX(-50%);
@@ -793,7 +799,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
    纯呈现层操纵——不触碰执行层 / 3D 不变量 / 中断态 / 任何数据。
    由 verify_opaque.js 常驻回归锁死。检索时 grep "OPAQUE-MANIPULATION ZONE"。
    ══════════════════════════════════════════════════════════════════════ */
-(function(){ try{ if(new URLSearchParams(location.search).get('mode')==='opaque') document.documentElement.classList.add('mode-opaque'); }catch(e){} })();
+(function(){ try{ if(new URLSearchParams(location.search).get('mode')==='opaque') document.documentElement.classList.add('mode-opaque'); if(new URLSearchParams(location.search).get('mode')==='transparent-nolink'){ document.documentElement.classList.add('mode-transparent-nolink'); window._transparentNoLink = true; } }catch(e){} })();
 </script>
 <canvas id="scene"></canvas>
 <div id="immersiveHud">单目 · 立体关 · I 沉浸 · V 立体</div>
@@ -889,6 +895,12 @@ body.immersive #immersiveHud{display:block;opacity:1;}
       <div class="rc-input-row" id="rcInputRow" style="display:none;">
         <input type="text" id="rcAnswerInput" placeholder="输入你的回答…" autocomplete="off" />
         <button id="rcAnswerBtn">回答 →</button>
+      </div>
+      <div id="rcClarifyGuide" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid rgba(255,190,90,.42);border-radius:8px;background:rgba(255,190,90,.08);color:#ffd9a0;font-size:12px;line-height:1.6;">
+        <div id="rcClarifyGuideText" style="margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" id="rcClarifyComposeBtn" style="padding:5px 10px;border:1px solid rgba(52,245,160,.5);border-radius:6px;background:rgba(52,245,160,.12);color:#9dffcf;cursor:pointer;font-size:12px;">✎ 按起草方式重试（不要数据）</button>
+        </div>
       </div>
       <div class="rc-sec">
         <div class="rc-h"><span>这条路做了什么</span><em id="rcMeta"></em></div>
@@ -2222,6 +2234,10 @@ let _tlCompare = [];        // 最多两个 run_id
 let _replayHook = null;     // 一次性：分叉重走 → 真实重新推演 + 真实重新执行
 let _replayGuardTimer = null; // 兜底：推演落位回调异常时也不让重走静默挂起
 let _forkCtx = null;        // 本轮执行所属的分叉（写进 run.parent_run_id）
+let _clarifyStreak = 0;     // v0.9.29：连续 clarify 次数。连续反问 = 用户卡在原地，
+                            // 达到阈值就在澄清卡上给「换起草方式/补数据」的产品化出路。
+let _forceComposeNext = false; // v0.9.29：一次性标记，下次 execute 强制 task_kind=compose
+const CLARIFY_STREAK_GUIDE = 2;
 const TL_VERSION = 'v0.9.17';
 const TL_SESSION_STARTED = new Date().toISOString();
 const TL_STATUS = {
@@ -2567,6 +2583,9 @@ function sendMessage(){
   input.disabled = true;
   document.getElementById('sendBtn').disabled = true;
   document.getElementById('emptyState').style.display = 'none';
+  // v0.9.29：新问题 = 新会话主线，连续 clarify 链到此清零
+  _clarifyStreak = 0;
+  const _guide = document.getElementById('rcClarifyGuide'); if (_guide) _guide.style.display = 'none';
 
   const lastPos = journey.length > 0 ? journey[journey.length-1].pos : [0,0,0];
   const userNode = {
@@ -2627,6 +2646,7 @@ function tryGazeClear(){
 
 /* F3.2：从结果卡定位回 3D——把注视点直接带到到达牌位置（用户明确要定位），并给到达牌一个弹跳反馈。 */
 function focusArrivalIn3D(x, y, z){
+  if (window._transparentNoLink) return;  // B0 组：禁用 3D 定位联动
   if (x === undefined || y === undefined || z === undefined) return;
   // v0.9.13：结果牌已沉到路面下方，注视点跟着下移，不能再指向原来 +2.2 的空中位置
   _gaze = { t: performance.now() + 1500, target: _gazeTarget.set(x, y + ARRIVAL_Y_OFFSET, z) };  // 直接看向结果牌
@@ -3673,6 +3693,7 @@ function setArrivalHints(activeSign){
 }
 function hideResultCard(){
   document.getElementById('resultCard').classList.remove('show');
+  const _guide = document.getElementById('rcClarifyGuide'); if (_guide) _guide.style.display = 'none';
   _activeArrivalSign = null;
   setArrivalBeam(null);
   setArrivalHints(null);   // 所有到达牌回到「可展开」态
@@ -3733,6 +3754,7 @@ function showResultCard(d){
 
   // 每次打开结果卡先复位「澄清交互区」——否则上一次澄清的输入框会残留到普通卡上
   card.classList.remove('clarify');
+  const _guideReset = document.getElementById('rcClarifyGuide'); if (_guideReset) _guideReset.style.display = 'none';
   document.getElementById('rcQuestionBig').style.display = 'none';
   document.getElementById('rcInputRow').style.display = 'none';
   const _ib = document.getElementById('rcInterruptBar');
@@ -3847,6 +3869,35 @@ function showResultCard(d){
     document.getElementById('rcQuestionBig').textContent = qText;
     document.getElementById('rcQuestionBig').style.display = 'block';
     document.getElementById('rcInputRow').style.display = 'flex';
+
+    // v0.9.29：连续 clarify 计数（同一 d 对象只记一次，避免重复渲染累加）。
+    // 连续反问 = 用户被诚实机制卡在原地，是「没有实质进展」的另一种形态。
+    if (d.__streakCounted !== true){
+      _clarifyStreak += 1;
+      d.__streakCounted = true;
+    }
+    const guide = document.getElementById('rcClarifyGuide');
+    if (_clarifyStreak >= CLARIFY_STREAK_GUIDE){
+      document.getElementById('rcClarifyGuideText').textContent =
+        `这是连续第 ${_clarifyStreak} 次需要补充信息。如果任务其实不需要外部数据` +
+        `（起草、写作、整理要点），可以直接按起草方式重试；若确实依赖数据，请在上方补充。`;
+      guide.style.display = 'block';
+      const composeBtn = document.getElementById('rcClarifyComposeBtn');
+      composeBtn.onclick = () => {
+        // 剥离历次 [用户补充] 段，回到原始任务文本；清零连续计数，走真实起草执行。
+        const base = (_lastContext || '').split('\n\n[用户补充]')[0].trim();
+        if (base) _lastContext = base;
+        _clarifyStreak = 0;
+        hideResultCard();
+        if (typeof d.idx === 'number' && d.idx >= 0 && _currentCandidates[d.idx]){
+          startExecution(d.idx, {forceCompose:true});   // 真实执行，task_kind=compose
+        } else {
+          showToast('请重新描述任务后发送', '#ffd23f');
+        }
+      };
+    } else {
+      guide.style.display = 'none';
+    }
 
     // 澄清卡不展示「步骤 / 产出 / 说明」——这些属于已完成态，容易与「正常完成」混淆
     if (stepsSec) stepsSec.style.display = 'none';
@@ -4331,6 +4382,9 @@ function tlForecastSnapshot(){
 // 一次执行收尾 = 一条记录。中断 / 澄清 / 失败同样记，但状态不写成完成。
 function recordRun(detail, status){
   if (!detail) return null;
+  // v0.9.29：任何非澄清的收尾都打断连续 clarify 链（成功/失败/中断都算「动了」）。
+  // 澄清本身不在这里计数——由澄清卡渲染处按 d 对象去重累加。
+  if (status !== 'clarify') _clarifyStreak = 0;
   const f = _forkCtx; _forkCtx = null;
   const seq = ++_runSeq;
   const tasks = Array.isArray(detail.tasks)
@@ -5236,11 +5290,17 @@ function startExecution(idx, opts={}){
     return;
   }
 
+  // v0.9.29：从连续 clarify 死胡同「按起草方式重试」时，强制中性化执行语境。
+  // 与后端自动识别一致，只是显式覆盖；仍是真实 LLM 执行，不伪造任何产物。
+  if (opts.forceCompose) _forceComposeNext = true;
+
   wsSend({
     type:'execute', context:_lastContext,
     label:c.label, candidate:idx, mode:execInfo.mode,
     steps:(c.steps || []).slice(0, 4),   // 前瞻拆的步骤，执行时真正用上
+    task_kind: (_forceComposeNext ? 'compose' : undefined),
   });
+  _forceComposeNext = false;
   // 顺序流程每站都有卡片高亮 + 任务条，不再逐站弹 toast 刷屏
   if (execInfo.mode !== 'sequential') showToast('出发：' + c.label, c.color);
 
@@ -6110,7 +6170,8 @@ function animate(){
     }
     // F3.2：结果卡打开时，到达牌持续联动发光——比脉冲更亮、更持久，
     //   用户看一眼 3D 就知道"这块牌就是卡片里说的那个结果"
-    if (s === _activeArrivalSign && st.arrivalGlow){
+    //   B0 组（?mode=transparent-nolink）禁用：结果卡与 3D 之间无联动反馈。
+    if (s === _activeArrivalSign && st.arrivalGlow && !window._transparentNoLink){
       const linkPulse = Math.abs(Math.sin(t * 3.0));
       st.arrivalGlow.material.opacity = 0.2 + linkPulse * 0.5;
       st.arrivalGlow.scale.set(1.05 + linkPulse * 0.1, 1.05 + linkPulse * 0.1, 1);
@@ -6284,6 +6345,13 @@ init();
     get arrivalBeamCount() { return _arrivalBeam ? 1 : 0; },
     get activeArrivalHint() { return _activeArrivalSign ? (_activeArrivalSign.userData.hintText || '') : ''; },
     get resultCardOpen() { return document.getElementById('resultCard').classList.contains('show'); },
+    // v0.9.29：幂等「打开」结果卡（不 toggle）。执行完成本就自动展示，
+    // 自动化/录制脚本用这个钩子可避免「再点一下把已开的卡收起」的假命中问题。
+    openResultCard() {
+      const d = _arrivalResults.get(-2);
+      if (d) showResultCard(d);
+      return document.getElementById('resultCard').classList.contains('show');
+    },
     get futureStartDist() { return 5.5; },
     get sceneryBaseOpacity() { return 0.38; },
     get futureSignOpacity() { return 0.92; },
@@ -6689,6 +6757,17 @@ init();
     _rcSet(d){ _arrivalResults.set(-2, d); },
     _rcShow(){ const d = _arrivalResults.get(-2); if (d) showResultCard(d); return !!d; },
     _rcHide(){ hideResultCard(); },
+    // v0.9.29：连续 clarify 引导回归钩子（传新 detail 对象模拟多轮反问）
+    _showClarify(question){
+      showResultCard({ clarify:true, ok:true, idx:-1, label:'先查资料',
+                       question: question || '请补充信息', output:'' });
+      return {
+        streak: _clarifyStreak,
+        guideShown: document.getElementById('rcClarifyGuide').style.display === 'block',
+        guideText: document.getElementById('rcClarifyGuideText').textContent,
+      };
+    },
+    get clarifyStreak(){ return _clarifyStreak; },
     // v0.9.11.2：结果卡强调与行驶落位同步（full-chain 测试探针）
     finishOnce(d){
       __cockpit._testMode = true;

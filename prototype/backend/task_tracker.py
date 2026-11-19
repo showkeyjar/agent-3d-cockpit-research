@@ -44,6 +44,65 @@ TASK_TYPES = {
 }
 
 
+# ─── 任务类型门控（v0.9.29）────────────────────────────────────────────
+# 审计补充 AUDIT-CONTEXT-POLLUTION.md：推演层给出的 label（"先查资料/检索口径"）
+# 与 steps（"检索→整理→核对"）描述的是「推演器猜的做法」，不是用户原话里的数据
+# 依赖。原样注入执行 prompt 后，起草类任务（产物就是文字）被包装成数据分析任务，
+# 触发第 5 条的诚实索要输入 → clarify，起草类在正常点路流程 3/3 拿不到成果。
+# 门控在后端做（prompt 在此组装），保证 Web/键盘/直连所有入口行为一致。
+_COMPOSE_VERBS = re.compile(
+    r"起草|撰写|草拟|拟一份|拟一个|写一份|写一个|写一封|帮我写|给我写|"
+    r"生成一份|编一份|编制|输出一份|整理成|写成|出一份|拟写|拟稿|润色|扩写|缩写"
+)
+_COMPOSE_PRODUCT = re.compile(
+    r"指南|方案|文档|报告|条款|邮件|文案|说明|总结|摘要|大纲|提纲|计划|清单|"
+    r"规范|制度|手册|准则|细则|话术|回复|通知|公告|声明|倡议书|演讲稿|脚本|"
+    r"诗歌|故事|文章|段落|内容|草稿|稿件"
+)
+_COMPOSE_STRONG = re.compile(
+    r"起草|撰写|草拟|拟一份|写一份|帮我写|给我写|写一封|润色|扩写"
+)
+_DATA_DEPENDENT = re.compile(
+    r"根据.{0,14}(数据|资料|文件|表格|观测|样本|记录)|"
+    r"基于.{0,14}(数据|资料|文件|观测|样本)|"
+    r"(附上|附件|上传的|提供的)?.{0,4}(数据|资料|文件|表格).{0,6}(分析|统计|预测|对比|评估)|"
+    r"(分析|统计|整理|核对|对比|找出|预测|回归|拟合).{0,10}(数据|表格|样本|记录|观测|指标)|"
+    r"(数据|表格|样本|观测).{0,10}(分析|统计|找出|异常|趋势|预测)|"
+    r"ERA5|Sentinel|S2影像|遥感影像|\.csv|\.xlsx|数据库|观测站|时间序"
+)
+_RETRIEVAL_TERMS = re.compile(
+    r"查资料|检索口径|检索|搜索|查阅|查找|核对来源|先查|调研|收集资料|查证"
+)
+
+
+def classify_task_kind(context: str) -> str:
+    """识别任务类型：compose（起草/生成，产物就是文字）/ analysis（需外部数据）/ general。
+
+    保守策略：只有明确起草信号才归 compose；明确的外部数据依赖优先归 analysis，
+    保留模型诚实索要输入的能力。宁可漏判（走原行为）也不错判（该索要时不索要）。
+    """
+    text = (context or "").strip()
+    if not text:
+        return "general"
+    if _DATA_DEPENDENT.search(text):
+        return "analysis"
+    if _COMPOSE_STRONG.search(text):
+        return "compose"
+    if _COMPOSE_VERBS.search(text) and _COMPOSE_PRODUCT.search(text):
+        return "compose"
+    return "general"
+
+
+def compose_action_word(label: str) -> str:
+    """起草类：把推演器的检索式动作词换成中性动作词（用户建议的做法）。
+    若候选本身不含检索语义（如"覆盖代码评审与文档更新"）则原样保留，
+    让用户点选的侧重仍能进入执行语境；命中检索词则降级为固定中性词。"""
+    s = (label or "").strip()
+    if not s or _RETRIEVAL_TERMS.search(s):
+        return "按用户要求直接产出成果"
+    return s
+
+
 @dataclass
 class TaskState:
     name: str
@@ -388,24 +447,52 @@ class AgentExecutor:
 
     async def execute(self, context: str, candidate_label: str,
                       planned_steps: Optional[List[str]] = None,
-                      stream_sink=None, cancel_event=None) -> Dict:
+                      stream_sink=None, cancel_event=None,
+                      task_kind: Optional[str] = None) -> Dict:
         """
         执行选定候选：单步真实 LLM 流式生成（路线 B）。
 
         planned_steps 来自前瞻推演，拼进 prompt 让模型沿规划作答（归因线索）。
+        ★ v0.9.29 门控：起草类任务（产物就是文字）不得注入推演器的检索式
+          label/steps，否则会被包装成数据分析任务，触发第 5 条索要输入 → clarify。
+          task_kind="compose" 强制起草中性化；None 时按用户原话自动识别；
+          "analysis"/"general" 保留原语义（真的缺数据时仍诚实 clarify）。
         stream_sink 收到 dict：{"type":"token","text":<增量>} 或
         {"type":"token","reset":True}（重试前清空前端流面板）。
         cancel_event（v0.9.16）被 set = 用户点了「停止生成」：中断流式请求，
         返回 interrupted=True 的部分结果，绝不返回 completed=True 的假完成。
         返回 {"completed", "output", "tasks", "chain", "source", "reason",
-              "tokens", "elapsed_ms", "note", "interrupted?": ...}
+              "tokens", "elapsed_ms", "note", "task_kind", "interrupted?": ...}
         """
-        plan_line = ""
-        if planned_steps:
-            plan_line = "已规划的做事顺序：" + " → ".join(planned_steps[:4]) + "\n"
+        kind = task_kind if task_kind in ("compose", "analysis", "general") \
+               else classify_task_kind(context)
+        if kind == "compose":
+            # 起草中性化：动作词降级、规划步骤不注入、第 5 条改为「产物即文字，
+            # 除非明确要求基于某份提供的数据，否则不得索要输入」。
+            # 注意：这一步只改「语境判断」，不碰「是否真实调 LLM」——仍是真实生成。
+            plan_line = ""
+            label_line = f"你要做的事：{compose_action_word(candidate_label)}\n"
+        else:
+            plan_line = ""
+            if planned_steps:
+                plan_line = "已规划的做事顺序：" + " → ".join(planned_steps[:4]) + "\n"
+            label_line = f"用户选择的做法：{candidate_label}\n"
+        if kind == "compose":
+            rule5 = (
+                "5. 这是起草/写作类任务，产物就是文字本身。除非用户明确要求基于某份"
+                "你拿不到的数据或文件，否则不得索要输入——直接写出成果。"
+                "只有确实缺少用户指定的外部数据时，才以 [需要输入: 开头索要。"
+            )
+        else:
+            rule5 = (
+                "5. 如果任务需要具体数据或信息而用户没有提供，你无法诚实完成——"
+                "严禁编造数字或事实。此时输出一个问题向用户索要缺失信息，"
+                "以 [需要输入: 开头，后跟具体要什么。"
+                "这是你作为智能体主动发起的交互，不是把任务推回去。"
+            )
         final_prompt = (
             f"用户的问题：{context}\n"
-            f"用户选择的做法：{candidate_label}\n"
+            f"{label_line}"
             f"{plan_line}"
             "你现在是智能体，这一步由你亲自完成，把成果直接交付给用户，而不是告诉用户去做什么事。\n"
             "硬性要求：\n"
@@ -413,9 +500,7 @@ class AgentExecutor:
             "2. 禁止出现网址、链接、URL、域名。\n"
             "3. 禁止对用户说「建议您访问」「您可以查看」「请搜索」「去某某网站」这类把任务推回给用户的话。\n"
             "4. 不要复述问题、不要写标题、不要客套。150字以内。\n"
-            "5. 如果任务需要具体数据或信息而用户没有提供，你无法诚实完成——严禁编造数字或事实。"
-            "此时输出一个问题向用户索要缺失信息，以 [需要输入: 开头，后跟具体要什么。"
-            "这是你作为智能体主动发起的交互，不是把任务推回去。"
+            f"{rule5}"
         )
 
         async def _send_token(payload: dict):
@@ -467,6 +552,7 @@ class AgentExecutor:
                 "chain": ["output"],
                 "source": "llm" if partial else "local",
                 "reason": "user_cancelled",
+                "task_kind": kind,
                 "tokens": tokens_est,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
                 "note": "已由用户中断",
@@ -531,6 +617,7 @@ class AgentExecutor:
                     "chain": ["clarify"],
                     "source": "llm",
                     "reason": "",
+                    "task_kind": kind,
                     "tokens": tokens_est,
                     "elapsed_ms": elapsed_ms,
                     "note": "",
@@ -559,6 +646,7 @@ class AgentExecutor:
             "chain": ["output"],
             "source": source,
             "reason": "" if source == "llm" else (reason or "llm_failed"),
+            "task_kind": kind,
             "tokens": tokens_est,
             "elapsed_ms": elapsed_ms,
             "note": note,
