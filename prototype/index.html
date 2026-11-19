@@ -423,6 +423,13 @@
     background:var(--cyan);color:#03121a;white-space:nowrap;transition:opacity .15s;}
   #dockAnswerBtn:hover{opacity:.85;}
   #dockAnswerBtn:disabled{opacity:.3;cursor:not-allowed;}
+  /* v0.9.34：选项式快捷回答——按任务类型给「回答策略」按钮（点选填入、可编辑） */
+  .cd-quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .cd-quick-label{flex-basis:100%;font-size:11px;color:#7fb8cc;margin-bottom:1px;}
+  .cd-quick-btn{padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;
+    font-family:inherit;border:1px solid rgba(94,224,255,.3);
+    background:rgba(94,224,255,.06);color:#bfeaf7;transition:background .15s,border-color .15s;}
+  .cd-quick-btn:hover{background:rgba(94,224,255,.18);border-color:var(--cyan);color:#eaffff;}
 
   /* ── 图例：过去 / 未来 / 现在 ── */
   #legend{position:fixed;left:16px;bottom:16px;z-index:10;pointer-events:none;
@@ -1064,6 +1071,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <input type="text" id="dockAnswerInput" placeholder="在这里回答模型的问题…" maxlength="400" autocomplete="off" />
     <button type="button" id="dockAnswerBtn">回答 →</button>
   </div>
+  <div class="cd-quick" id="cdQuick"><span class="cd-quick-label">常见回答（点选填入，可修改后发送）</span></div>
 </div>
 
 <div id="inputBar">
@@ -3996,13 +4004,15 @@ function showResultCard(d){
       const el = document.getElementById(id); if (el) el.style.display = 'none';
     });
 
-    // v0.9.33：两个作答入口（右上结果卡 + 底部悬浮条）共用同一提交逻辑，
+    // v0.9.33/34：两个作答入口（右上结果卡 + 底部悬浮条）共用同一提交逻辑，
     //   都把答案拼进 _lastContext → 复用当前候选真实第二轮执行。不新增完成信号。
-    const doSubmit = (readAns, focusEl) => {
+    //   quickSource：v0.9.34 选项式快捷回答的来源标记，研究数据可分辨（≠ 用户手打）。
+    const doSubmit = (readAns, focusEl, quickSource) => {
       const ans = (readAns() || '').trim();
       if (!ans){ focusEl.focus(); return; }
       const q = document.getElementById('rcQuestionBig').textContent || _lastContext;
-      _lastContext = (_lastContext || '') + `\n\n[用户补充]\n模型问：${q}\n用户答：${ans}`;
+      const srcTag = quickSource ? '用户答（快捷选项）' : '用户答';
+      _lastContext = (_lastContext || '') + `\n\n[用户补充]\n模型问：${q}\n${srcTag}：${ans}`;
       hideResultCard();                   // 同时隐藏右上卡与底部 dock
       if (typeof d.idx === 'number' && d.idx >= 0 && _currentCandidates[d.idx]){
         startExecution(d.idx);            // 复用当前候选 → 真实第二轮 LLM 调用
@@ -4028,8 +4038,35 @@ function showResultCard(d){
       dockInput.value = '';
       dockBtn.disabled = false;
       dock.style.display = 'block';
-      dockBtn.onclick = () => doSubmit(() => dockInput.value, dockInput);
+      dockBtn.onclick = () => doSubmit(() => dockInput.value, dockInput, dock.dataset.quick === '1');
       dockInput.onkeydown = (e) => { if (e.key === 'Enter'){ e.preventDefault(); dockBtn.click(); } };
+
+      // v0.9.34：选项式快捷回答——按任务类型给「回答策略」按钮（真实用户意图，非伪造数据）。
+      //   起草类被误判缺数据 → 主打「不要数据直接写」；分析类真缺数据 → 主打补数据/换来源/带假设。
+      //   点选只填入输入框（不自动提交），用户可修改后再发送；提交来源标注为「快捷选项」。
+      const quickBox = document.getElementById('cdQuick');
+      if (quickBox){
+        const kind = (d && d.task_kind) || 'general';
+        const QUICK = {
+          compose:  ['没有现成数据，请直接起草', '按已有信息先写，不等数据', '这点信息够了，直接给成果'],
+          analysis: ['数据我稍后补充', '用公开数据/示例即可', '按现有信息分析，注明假设'],
+          general:  ['按现有信息继续', '用合理假设推进', '稍后补充，先做能做的'],
+        };
+        quickBox.innerHTML = '<span class="cd-quick-label">常见回答（点选填入，可修改后发送）</span>';
+        (QUICK[kind] || QUICK.general).forEach(txt => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cd-quick-btn';
+          b.textContent = txt;
+          b.onclick = () => {
+            dockInput.value = txt;
+            dock.dataset.quick = '1';        // 标记本轮答案来自快捷选项
+            dockInput.focus();
+          };
+          quickBox.appendChild(b);
+        });
+      }
+      delete dock.dataset.quick;              // 每轮 clarify 复位来源标记
       setTimeout(() => dockInput.focus(), 60);   // 作答框直接聚焦，用户可立刻打字
     }
 
@@ -7312,9 +7349,10 @@ init();
     _rcShow(){ const d = _arrivalResults.get(-2); if (d) showResultCard(d); return !!d; },
     _rcHide(){ hideResultCard(); },
     // v0.9.29：连续 clarify 引导回归钩子（传新 detail 对象模拟多轮反问）
-    _showClarify(question){
+    _showClarify(question, taskKind){
       showResultCard({ clarify:true, ok:true, idx:-1, label:'先查资料',
-                       question: question || '请补充信息', output:'' });
+                       question: question || '请补充信息', output:'',
+                       task_kind: taskKind || undefined });
       return {
         streak: _clarifyStreak,
         guideShown: document.getElementById('rcClarifyGuide').style.display === 'block',
@@ -7339,6 +7377,9 @@ init();
         inputBarTop: br ? Math.round(br.top) : null,
         aboveInputBar: br ? r.bottom <= br.top + 1 : false,
         focused: document.activeElement === inp,
+        quickOptions: Array.from((document.getElementById('cdQuick') || {querySelectorAll:()=>[]})
+                          .querySelectorAll('.cd-quick-btn')).map(b => b.textContent),
+        quickSource: d.dataset.quick === '1',
       };
     },
     // v0.9.30 P0 结果可用性回归钩子
