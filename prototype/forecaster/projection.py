@@ -17,6 +17,7 @@ Vector Space Projection — 向量空间投影
 
 from __future__ import annotations
 
+import hashlib
 import math
 from typing import List, Tuple
 
@@ -39,6 +40,7 @@ def force_directed_3d(
     damping: float = 0.9,         # 阻尼
     eps: float = 0.35,            # 吸引距离阈值
     radius: float = 1.0,          # 初始随机半径
+    seed: int | None = None,      # 随机种子；None = 由输入内容派生
 ) -> List[Tuple[float, float, float]]:
     """
     力导向布局：把 N 个向量投影到 3D 坐标。
@@ -63,12 +65,23 @@ def force_directed_3d(
     if n == 1:
         return [(0.0, 0.0, 0.0)]
 
-    # 初始化：随机分布在半径为 radius 的球体内
+    # v0.9.49.2：确定性投影——种子默认由候选向量内容派生（sha256 前缀）。
+    # 此前用全局 RNG：同一组候选每次 forecast 的 pos3d 都不同，「道路即分歧」
+    # 的几何结论在研究评审中不可复算（同一输入两次运行两种布局）。
+    # 同输入 → 同种子 → 同布局；不同输入自然得到不同布局。显式传 seed 可复现实验。
+    if seed is None:
+        h = hashlib.sha256()
+        for v in vecs:
+            h.update(np.ascontiguousarray(v, dtype=np.float64).tobytes())
+        seed = int.from_bytes(h.digest()[:8], "little")
+    rng = np.random.default_rng(seed)
+
+    # 初始��：随机分布在半径为 radius 的球体内
     positions = [
         np.array([
-            (np.random.randn() * radius),
-            (np.random.randn() * radius),
-            (np.random.randn() * radius),
+            (rng.standard_normal() * radius),
+            (rng.standard_normal() * radius),
+            (rng.standard_normal() * radius),
         ])
         for _ in range(n)
     ]
@@ -95,7 +108,7 @@ def force_directed_3d(
                 delta = positions[i] - positions[j]
                 dist = np.linalg.norm(delta)
                 if dist < 0.001:
-                    delta = np.random.randn(3)
+                    delta = rng.standard_normal(3)
                     dist = np.linalg.norm(delta)
                 force = repulsion / (dist ** 2)
                 dir_vec = delta / dist

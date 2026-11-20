@@ -7,6 +7,20 @@
 
 ---
 
+## v0.9.49.2 · 2026-11-20 · 工程加固批次二：WS 生命周期 + 哨兵分离 + 投影确定性 + 同步工具
+
+外部审查第二批 P1 修复。执行链语义、3D 几何契约、实验操纵零改动。
+
+- **WS 断开收尾（后端）**：`WSConnection` 新增 `bg_tasks` 登记与 `shutdown()`——此前 `exec_task` 只存最后一轮（旧引用覆盖丢失）、refine/explain 连引用都不存，**断开后在飞 LLM 生成继续白烧单槽 55–70s**、异常成 "Task exception was never retrieved"。断开时先让在飞任务走协作式中断（`reason=user_cancelled`、部分文本、任务条 stop——与用户点停止完全同语义），短窗口未收口的才兜底 cancel。新测试 `backend/test_ws_lifecycle.py`（fake-LLM，不占模型槽）。
+- **「停止生成」对 refine 生效**：refine 的 cancel_event 此前建完无人 set（只能等 70s 超时）。refine 登记 `conn.refine_cancel_event/executor`，cancel 消息与断开都作用它；并发 refine 如实回 `reason=busy`。
+- **哨兵分离（`[` 误杀修复）**：`_llm` 改结构化返回 `(text, reason)`，错误一律进 reason；删除四处 `startswith("[")` 判定（execute 主链/重试链、refine、judge_completion、explain）与前端 `hasReal` 镜像。此前模型正文若以 `[` 开头（`[草案] 一、…`、JSON 数组形输出）会被丢弃并误判失败/need_input——refine 的缺数据诚实出口本就是尾部 `[达成度: 待补输入]` 自评（v0.9.36），裸前缀判定是哨兵时代残留。
+- **投影确定性**：`force_directed_3d` 种子默认由候选向量内容派生（sha256）——同一组候选每次 forecast 的 `pos3d` 从「每次随机」变为「同输入同布局」，3D 几何结论研究可复算；显式 `seed` 参数可复现实验。所有前端测试用自注入 pos3d，零影响。
+- **前端 WS 细节**：断线重连固定 3s → 指数退避（1s→…封顶 15s，连上清零）；`wsSend` 离线不再静默丢弃——`cancel` 类消息未发出时如实提示并复位停止按钮（不再卡「正在停止」）。主执行链 70s 兜底（已有，复核确认）。
+- **新工具 `tools/sync_live.py`**：repo→LIVE 一键同步（默认干跑、sha256 校验、`--apply` 复制、`--restart` 杀 8770 等看门狗拉起）——把「改 repo 必须手动 cp 到 LIVE 否则不生效」的踩坑流程固化，替代手动 cp。自动探测 `WorkBuddy/*/agent-3d-cockpit` 或 `COCKPIT_LIVE_DIR` 指定。
+- **回归**：`test_ws_lifecycle` 14/14（断开收尾/refine 停止/并发 busy/哨兵四场景）；`test_cancel_backend` 16/16；pytest forecaster+expert_state 29/29；投影确定性专项（同输入两次逐位相等、异输入不同布局）；页面冒烟 0 JS 错误。
+
+---
+
 ## v0.9.49.1 · 2026-11-20 · 工程加固批次：修被掩盖的中断契约 bug + api_key 透传 + XSS 转义 + 默认回环绑定
 
 外部审查发现四项已验证硬伤，全部修复并补回归。执行链语义、3D 几何、实验操纵零改动。
@@ -19,6 +33,9 @@
 - **修测试边界笔误**：`forecaster/tests/test_core.py::TestRoadType` 断言 0.35 为 CURVE，与实现注释「D ≥ 0.35 → 分岔」矛盾（off-by-one）。改为 0.349 → CURVE + 0.35 → FORK 边界断言。
 - **回归**：`test_cancel_backend` 16/16（新增 §4）；`pytest forecaster/tests/ backend/test_expert_state.py` 29/29；XSS 专项 PASS；`run_regression.sh` 六个新补测试（decorative/transparent-nolink/no-fingerprint/terminal/arrival-persist/fp-arrival-rebuild）全过。
 
+---
+
+## v0.9.49 · 2026-11-20 · 到达结果牌保留 + 拉近下限（滚动鼠标结果牌消失修复）
 
 用户实测：大模型生成中滑动鼠标，第一站结果路牌"没了"。诊断出两条独立机制，均修复：
 

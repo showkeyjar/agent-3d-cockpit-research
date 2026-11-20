@@ -124,7 +124,7 @@ def judge_completion(*, clarify: bool = False, interrupted: bool = False,
     if interrupted:
         return COMPLETION_PARTIAL
     text = (output or "").strip()
-    if ok and source == "llm" and text and not text.startswith("["):
+    if ok and source == "llm" and text:
         return COMPLETION_ACHIEVED
     return COMPLETION_PARTIAL
 
@@ -352,12 +352,16 @@ class AgentExecutor:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    async def _llm(self, prompt: str, max_tokens: int = 220) -> str:
+    async def _llm(self, prompt: str, max_tokens: int = 220) -> "tuple[str, str]":
         """
-        调用 LLM，返回文本。
+        调用 LLM，返回 (文本, reason)。reason 为空即成功——与 _llm_stream 对齐。
 
         快速优先：关掉 thinking（推理型模型在 thinking 阶段常返回 content=null）、
         限制 token 与超时，避免单步把整条执行链拖到几十秒。
+
+        v0.9.49.2：错误不再编码成 "[模型未返回文本]" 之类的哨兵字符串混进正文——
+        那会让下游用 startswith("[") 反查错误，进而误杀任何以 "[" 开头的合法模型
+        正文（如 "[草案] 一、…" 或 JSON 数组形输出）。错误一律走 reason 字段。
         """
         try:
             sess = await self._get_session()
@@ -377,13 +381,14 @@ class AgentExecutor:
                     data = await resp.json()
                     content = data["choices"][0]["message"].get("content")
                     if isinstance(content, str) and content.strip():
-                        return content.strip()
-                    return "[模型未返回文本]"
+                        return content.strip(), ""
+                    return "", "llm_no_content"
+                return "", f"http_{resp.status}"
         except asyncio.TimeoutError:
-            return "[本地模型响应超时，已跳过]"
+            return "", "llm_timeout"
         except Exception as e:
-            return f"[LLM 调用失败: {e}]"
-        return "[LLM 不可用]"
+            return "", f"llm_error: {e}"
+        return "", "llm_unavailable"
 
     async def _llm_stream(self, prompt: str, max_tokens: int = 220,
                           on_chunk=None, cancel_event=None,
@@ -778,7 +783,8 @@ class AgentExecutor:
                         on_first_token=cap_before, on_generation_done=cap_after)
                     if reason2 == "interrupted":
                         return interrupted_result()
-                    if text2 and not text2.startswith("[") \
+                    # v0.9.49.2：以 reason 判定成败（错误进 reason，正文 "[" 开头合法）
+                    if text2 and not reason2 \
                        and not self._pushes_back_to_user(text2):
                         text, reason = text2, ""
                     else:
@@ -815,7 +821,9 @@ class AgentExecutor:
                     "internal_state": make_internal_state("llm"),
                 }
 
-        if text and not text.startswith("["):
+        # v0.9.49.2：reason 为空 = 模型真实文本（流式调用早已结构化返回错误；
+        # 此前的 startswith("[") 哨兵会误杀 "[草案] 一、…" 这类合法开头正文）。
+        if text and not reason:
             summary = text[:80].replace("\n", " ").strip()
             self.tracker.mark_done("output", f"{summary} ✓")
             source = "llm"
@@ -949,14 +957,10 @@ class AgentExecutor:
         else:
             reason = "llm_disabled"
 
-        if text and text.startswith("["):
-            return {
-                "ok": False, "output": "", "source": "llm",
-                "completion": COMPLETION_NEED_INPUT, "reason": reason or "need_input",
-                "mode": mode, "tokens": tokens_est,
-                "elapsed_ms": int((time.monotonic() - t0) * 1000),
-                "note": "模型表示缺少外部数据，无法据此扩写",
-            }
+        # （v0.9.49.2：删除旧的「正文以 [ 开头 → need_input」整段判定——那是
+        # _llm 哨兵字符串时代的残留。缺数据的诚实出口自 v0.9.36 起就是模型在
+        # 正文尾写 [达成度: 待补输入]，由下方 self_rating 解析 + 就低降级承接；
+        # 裸 "[" 前缀只会误杀 "[草案] 一、…" 这类合法正文为 need_input 并丢弃。）
 
         if text and not self._pushes_back_to_user(text):
             # 模型自评：正文末尾的 [达成度: …] 只作为附加信号，规则判据仍独立记录。

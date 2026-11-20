@@ -2459,17 +2459,22 @@ canvas.addEventListener('dblclick', e => {
 
 /* ── 后端连接 ── */
 let ws = null, wsConnected = false, _lastContext = '';
+let _wsRetry = 0;   // 断线重连退避计数；连上即清零
 const WS_URL = 'ws://localhost:8770/ws';
 
 function wsConnect(){
   try { ws = new WebSocket(WS_URL); } catch(e) { return; }
-  ws.onopen = () => { wsConnected = true; updateConn(); };
+  ws.onopen = () => { wsConnected = true; _wsRetry = 0; updateConn(); };
   // 三轮审查断点3：WS 断线时 refine 通道的 refine_done 永远不会到达，若不复位
   // _refineBusy 会永久锁死「展开/综合」。断线即复位（主执行链有独立解锁机制）。
+  // v0.9.49.2：固定 3s 重连改指数退避（1s→2s→…封顶 15s）——后端长时间不在时
+  // 不再每 3s 空转重试；连上即清零，短暂抖动仍快速恢复。
   ws.onclose = () => {
     wsConnected = false; updateConn();
     if (_refineBusy){ resetRefineBusy(); showToast('连接中断，深化已取消，可重试', '#ff8a8a'); }
-    setTimeout(wsConnect, 3000);
+    const delay = Math.min(1000 * Math.pow(2, _wsRetry), 15000);
+    _wsRetry += 1;
+    setTimeout(wsConnect, delay);
   };
   ws.onerror = () => { wsConnected = false; updateConn(); };
   ws.onmessage = e => {
@@ -2946,7 +2951,17 @@ function wsSend(data){
     _wsLog.push({ ...data, _t: Date.now() });
     if (_wsLog.length > 40) _wsLog.shift();
   } catch(e) {}
-  if (wsConnected && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+  if (wsConnected && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify(data));
+  } else {
+    // v0.9.49.2：不再静默丢弃。execute 路径在 startExecution 已提前拦截离线，
+    // 走到这里还离线的主要是 cancel——不反馈会让停止按钮停在「正在停止」。
+    console.warn('[ws] 未连接，消息未发出:', data && data.type, data);
+    if (data && data.type === 'cancel'){
+      setStopBtn('ready');
+      showToast('后端未连接：停止请求未发出（生成会在连接恢复后自行收尾）', '#ff8a8a');
+    }
+  }
 }
 
 /* ── v0.9.37 会话脉络连续性 ─────────────────────────────────────────
@@ -4763,13 +4778,11 @@ function showResultCard(d){
   // 产出：有真实模型内容才显示正文；否则如实说明「没有产生成果」，
   // 不再出现「本地执行流程」这类暗示做过事的旧剧场措辞。
   const raw = escText(d.output).trim();
-  // v0.9.35：判据必须与后端 judge_completion(task_tracker.py:94) 同源——
-  //   ok && source==='llm' && output 非空 && 不以 '[' 开头。
-  // 旧 looksLikeLog 正则（/^已(检索|生成…)/ || length<8）是路线 A 剧场残留：
-  // 路线 B 的 HONEST_FALLBACK 早已无「已检索」文案，该正则会把真实 LLM 的短答案
-  // （如「用方案A」）或以「已生成…」开头的正文误判为无产出 → 正文说「没有成果」
-  // 而 completion=achieved 说「目标达成」，自相矛盾。删除该正则，统一判据。
-  const hasReal = !!d.ok && d.source === 'llm' && !!raw && !raw.startsWith('[');
+  // v0.9.49.2：判据与后端 judge_completion 同源——ok && source==='llm' && output 非空。
+  // 后端自本版起错误一律走 reason 字段（不再编码 "[模型未返回…]" 哨兵字符串进
+  // 正文），因此正文以 '[' 开头（如 "[草案] 一、…"）是合法真实产出，不再被
+  // startswith('[' 误杀为「无产出」。
+  const hasReal = !!d.ok && d.source === 'llm' && !!raw;
   document.getElementById('rcOutput').textContent = hasReal
     ? raw
     : (d.ok

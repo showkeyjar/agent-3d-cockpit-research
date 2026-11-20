@@ -462,6 +462,43 @@ class WSConnection:
         # cancel_epoch 每次 cancel +1；排队轮获锁后若发现提交后发生过 cancel 就跳过。
         self.cancel_epoch = 0
         self.active_cancel_event: asyncio.Event | None = None
+        # v0.9.49.2：本连接派生的全部后台任务（execute/refine/explain）。
+        # 此前 exec_task 只存最后一轮（旧引用被覆盖丢失）、refine/explain 连引用
+        # 都不存——WS 断开后在飞 LLM 生成继续白烧单槽 55–70s，异常还会成为
+        # "Task exception was never retrieved"。断开时统一收尾（见 ws_endpoint）。
+        self.bg_tasks: set[asyncio.Task] = set()
+        # refine 独立通道的取消信号与执行器：「停止生成」此前只作用于 execute，
+        # refine 一旦发起只能等 70s 超时（cancel_event 建完无人 set）。
+        self.refine_cancel_event: asyncio.Event | None = None
+        self.refine_executor = None
+
+    def track(self, task: asyncio.Task) -> asyncio.Task:
+        """登记后台任务，完成即自动移除。"""
+        self.bg_tasks.add(task)
+        task.add_done_callback(self.bg_tasks.discard)
+        return task
+
+    async def shutdown(self):
+        """连接断开：让在飞任务走「用户中断」路径真实收尾（掐断 LLM 流、
+        释放单槽）。先给一个短窗口走协作式中断（interrupted 语义、部分文本、
+        任务条 stop——与用户主动点停止完全一致），窗口内未收口的才兜底
+        cancel。收尾里的 send 会失败但被自吞，无妨。"""
+        if self.active_cancel_event is not None:
+            self.active_cancel_event.set()
+        if self.active_executor is not None:
+            await self.active_executor.abort()
+        if self.refine_cancel_event is not None:
+            self.refine_cancel_event.set()
+        if self.refine_executor is not None:
+            await self.refine_executor.abort()
+        pending = [t for t in self.bg_tasks if not t.done()]
+        if pending:
+            await asyncio.wait(pending, timeout=1.5)
+        still = [t for t in self.bg_tasks if not t.done()]
+        for t in still:
+            t.cancel()
+        if still:
+            await asyncio.gather(*still, return_exceptions=True)
 
     async def send(self, msg: dict):
         # task_update 回调是 create_task 异步发出的，和主流程 send 会并发写同一个 WS，
@@ -561,8 +598,8 @@ async def ws_endpoint(ws: WebSocket):
                 my_cancel = asyncio.Event()
                 conn.cancel_event = my_cancel       # 兼容旧读点
                 submitted_epoch = conn.cancel_epoch  # 提交时的纪元快照
-                conn.exec_task = asyncio.create_task(
-                    run_execute(conn, data, my_cancel, submitted_epoch))
+                conn.exec_task = conn.track(asyncio.create_task(
+                    run_execute(conn, data, my_cancel, submitted_epoch)))
 
             elif data.get("type") == "cancel":
                 # v0.9.16：停止生成。协作式取消 + 立即掐断流式 HTTP 连接；
@@ -581,16 +618,21 @@ async def ws_endpoint(ws: WebSocket):
                     conn.active_cancel_event.set()
                     if conn.active_executor is not None:
                         await conn.active_executor.abort()
+                # 停止生成同时作用于 refine 通道（此前 refine 无法停止，只能等 70s 超时）
+                if conn.refine_cancel_event is not None:
+                    conn.refine_cancel_event.set()
+                if conn.refine_executor is not None:
+                    await conn.refine_executor.abort()
                 await conn.send({"type": "cancel_ack", "active": active})
 
             elif data.get("type") == "refine":
                 # P0 产出层/迭代层：基于已拿到的一次成果做二次真实生成，
                 # 独立后台任务，不占用/不重置 execute 的 cancel/任务条状态。
-                asyncio.create_task(run_refine(conn, data))
+                conn.track(asyncio.create_task(run_refine(conn, data)))
 
             elif data.get("type") == "explain":
                 # 驾驶前认知对齐：把路牌翻译成大白话，后台执行不阻塞
-                asyncio.create_task(run_explain(conn, data))
+                conn.track(asyncio.create_task(run_explain(conn, data)))
 
             elif data.get("type") == "set_context":
                 # 前端主推演走 REST，这里同步一次上下文，保证 WS 会话可用
@@ -601,6 +643,10 @@ async def ws_endpoint(ws: WebSocket):
         pass
     except Exception as e:
         print(f"[WS] error: {e}")
+    finally:
+        # v0.9.49.2：断开即收尾在飞任务（此前断开后 execute 继续持锁跑满
+        # 55s、refine 70s，白烧单槽且异常 unretrieved）。
+        await conn.shutdown()
 
 
 async def run_forecast_stream(conn: WSConnection, context: str, k: int, fast: int = 0):
@@ -882,10 +928,20 @@ async def run_refine(conn: WSConnection, data: dict):
         done["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
         await conn.send(done)
         return
+    # 并发守卫：上一轮 refine 还在跑时如实回 busy，不排队叠加
+    # （后端单槽模型下并发 refine 只会互相等槽 + 覆盖取消信号）。
+    if conn.refine_cancel_event is not None:
+        done.update({"reason": "busy", "note": "上一轮深化仍在进行，请稍候再试"})
+        done["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+        await conn.send(done)
+        return
     cancel_event = asyncio.Event()
     tracker = TaskTracker(callback=lambda d: None)
     executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker,
                              use_llm=EXEC_USE_LLM(), api_key=LLM_API_KEY())
+    # v0.9.49.2：登记到连接，使「停止生成」与「连接断开」都能真正停掉 refine
+    conn.refine_cancel_event = cancel_event
+    conn.refine_executor = executor
     try:
         await conn.send({"type": "refine_ack", "mode": mode})
         result = await asyncio.wait_for(
@@ -920,6 +976,11 @@ async def run_refine(conn: WSConnection, data: dict):
         done["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
         await conn.send(done)
         await executor.close()
+        # 只有本轮登记的信号才由本轮清理（与 execute 的三轮审查断点7 同款纪律）
+        if conn.refine_cancel_event is cancel_event:
+            conn.refine_cancel_event = None
+        if conn.refine_executor is executor:
+            conn.refine_executor = None
 
 
 async def run_explain(conn: WSConnection, data: dict):
@@ -979,9 +1040,11 @@ async def run_explain(conn: WSConnection, data: dict):
                       "特别注意：所有活儿都是智能体自己做。禁止说「你去查/访问/打开/浏览某网站、"
                       "某链接、某数据」这类把任务推回给用户的话，禁止出现任何网址。"
                 )
-                ans = await asyncio.wait_for(
+                ans, ans_reason = await asyncio.wait_for(
                     executor._llm(prompt, max_tokens=160), timeout=28)
-                if isinstance(ans, str) and ans.strip() and not ans.startswith("["):
+                # v0.9.49.2：_llm 已结构化返回 (text, reason)，错误看 reason，
+                # 不再用 startswith("[") 哨兵（会误杀 "[" 开头的合法正文）
+                if isinstance(ans, str) and ans.strip() and not ans_reason:
                     # 校验：解释文本同样禁止把任务推回给用户
                     if AgentExecutor._pushes_back_to_user(ans.strip()):
                         out["reason"] = "llm_pushed_back"   # 保留本地兜底文案
@@ -989,7 +1052,7 @@ async def run_explain(conn: WSConnection, data: dict):
                         out["text"] = ans.strip()
                         out["source"] = "llm"
                 else:
-                    out["reason"] = "llm_failed"
+                    out["reason"] = ans_reason or "llm_failed"
             else:
                 out["reason"] = "model_busy"
         except asyncio.TimeoutError:
