@@ -26,10 +26,11 @@ import httpx
 TOOLS_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = TOOLS_DIR.parent
 REPO_BACKEND = PROJECT_DIR / "prototype" / "backend"
-# 实际运营副本（看门狗从这里拉起）。可用环境变量覆盖；默认探测 LIVE 是否存在。
-_DEFAULT_LIVE = Path("C:/Users/smith/WorkBuddy/2026-11-03-19-18-08/agent-3d-cockpit/backend")
-_live = Path(os.environ.get("COCKPIT_BACKEND_DIR", str(_DEFAULT_LIVE)))
-BACKEND_DIR = _live if (_live / "server.py").exists() else REPO_BACKEND
+# 实际运营副本（看门狗从这里拉起）。仅由 COCKPIT_BACKEND_DIR 环境变量指定；
+# 未设置时回退到仓库自带 backend，不再硬编码个人绝对路径。
+_live_env = os.environ.get("COCKPIT_BACKEND_DIR", "")
+_live = Path(_live_env) if _live_env else None
+BACKEND_DIR = _live if (_live and (_live / "server.py").exists()) else REPO_BACKEND
 
 BASE = os.environ.get("COCKPIT_BACKEND", "http://127.0.0.1:8770").rstrip("/")
 PY = os.environ.get("COCKPIT_PY", sys.executable)
