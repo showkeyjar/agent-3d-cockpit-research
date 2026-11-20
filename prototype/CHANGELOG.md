@@ -7,7 +7,18 @@
 
 ---
 
-## v0.9.49 · 2026-11-20 · 到达结果牌保留 + 拉近下限（滚动鼠标结果牌消失修复）
+## v0.9.49.1 · 2026-11-20 · 工程加固批次：修被掩盖的中断契约 bug + api_key 透传 + XSS 转义 + 默认回环绑定
+
+外部审查发现四项已验证硬伤，全部修复并补回归。执行链语义、3D 几何、实验操纵零改动。
+
+- **★ 修真 bug：用户中断被误报为 error（v0.9.41 引入，潜伏 8 个版本）**。`task_tracker.py` 的 `make_internal_state` 形参名是 `interrupted_val`，而中断收尾路径用关键字 `interrupted=True` 调用 → **每次点「停止生成」，interrupted_result() 100% 抛 TypeError**，被外层吞成 `reason=error`——v0.9.16 的中断契约（如实标 user_cancelled / 回传部分文本 / 任务条 stop）静默失效。形参名对齐后 `test_cancel_backend.py` 16/16 全绿。
+- **★ 修测试坏死：`test_cancel_backend.py` 已因配置函数化重构失效**（monkeypatch 把 `server.LLM_BASE_URL` 覆盖成 str，`LLM_BASE_URL()` 调用即 TypeError，**一个断言都跑不到**——上述中断 bug 正是被它掩盖）。改用 `llm_config.update(..., persist=False)` 热更新接口；顺带新增 §4 断言锁死 api_key 透传。
+- **api_key 透传（AgentExecutor 全链路鉴权）**：`_llm`/`_llm_stream` 此前不带 Authorization 头——界面配置云端模型（OpenAI 兼容）时 execute/refine/explain 一律 401 静默降级成「模型未返回有效内容」且不告知原因。`AgentExecutor(api_key=...)` + `_auth_headers()`（非空且非 "EMPTY" 才发 Bearer，本地 llama.cpp 无感），server 三处构造透传 `LLM_API_KEY()`。
+- **前端注入点修复**：`renderContextTags()`（index.html）的 `t.text`/`t.src` 未走 `escHtml` 直插 innerHTML，而标签数据源含模型输出（`collectContextPhrases` 收 `d.output`）——恶意/异常模型输出即注入（`title="${t.src}"` 为属性注入位）。全文其余 41 处 innerHTML 均已转义，唯此漏网。专项验证：`<img onerror>`/`"><svg onload>` 两类注入均被转义、转义后删除按钮仍可用（dataset 读回原文本）、0 JS 错误。
+- **默认绑定回环**：`server.py` 与 `backend-watchdog.py` 的 `0.0.0.0` → `127.0.0.1`（`HOST` 环境变量可显式开放）。全 API 无鉴权 + WS 无 Origin 校验 + base_url 可热改的组合下，绑 0.0.0.0 使「改 base_url → 触发 forecast/test → api_key 发往任意地址」成为同网段可达的密钥外带通道。
+- **修测试边界笔误**：`forecaster/tests/test_core.py::TestRoadType` 断言 0.35 为 CURVE，与实现注释「D ≥ 0.35 → 分岔」矛盾（off-by-one）。改为 0.349 → CURVE + 0.35 → FORK 边界断言。
+- **回归**：`test_cancel_backend` 16/16（新增 §4）；`pytest forecaster/tests/ backend/test_expert_state.py` 29/29；XSS 专项 PASS；`run_regression.sh` 六个新补测试（decorative/transparent-nolink/no-fingerprint/terminal/arrival-persist/fp-arrival-rebuild）全过。
+
 
 用户实测：大模型生成中滑动鼠标，第一站结果路牌"没了"。诊断出两条独立机制，均修复：
 

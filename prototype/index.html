@@ -2335,8 +2335,10 @@ function renderContextTags(){
   const el = document.getElementById('contextTags');
   if (!el) return;
   if (!_contextTags.length){ el.classList.remove('show'); el.innerHTML = ''; return; }
+  /* 标签文本/来源可能含模型输出（collectContextPhrases 会收 d.output），
+     必须与卡片渲染同一纪律走 escHtml；data-t 属性位同样转义（dataset 读回自动解码）。 */
   el.innerHTML = '<span class="ct-hint">本轮纳入：</span>' + _contextTags.map(t =>
-    `<span class="ctag" title="来源：${t.src}">${t.text}<button class="ctdel" data-t="${t.text.replace(/"/g,'')}">×</button></span>`
+    `<span class="ctag" title="来源：${escHtml(t.src)}">${escHtml(t.text)}<button class="ctdel" data-t="${escHtml(t.text)}">×</button></span>`
   ).join('');
   el.querySelectorAll('.ctdel').forEach(b => b.addEventListener('click', () => removeContextTag(b.dataset.t)));
   el.classList.add('show');

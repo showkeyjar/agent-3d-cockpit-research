@@ -94,9 +94,11 @@ class TestRoadType:
 
     def test_curve(self):
         assert road_type_from_divergence(0.25) == RoadType.CURVE
-        assert road_type_from_divergence(0.35) == RoadType.CURVE
+        # 边界按实现语义：D < 0.35 才是缓弯（0.35 属于分岔，见 DEFAULT_THRESHOLDS 注释）
+        assert road_type_from_divergence(0.349) == RoadType.CURVE
 
     def test_fork(self):
+        assert road_type_from_divergence(0.35) == RoadType.FORK
         assert road_type_from_divergence(0.45) == RoadType.FORK
         assert road_type_from_divergence(0.8) == RoadType.FORK
 

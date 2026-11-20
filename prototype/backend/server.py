@@ -757,7 +757,7 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None, submitt
 
         tracker = TaskTracker(callback=on_task_update)
         executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker,
-                                 use_llm=EXEC_USE_LLM())
+                                 use_llm=EXEC_USE_LLM(), api_key=LLM_API_KEY())
         conn.active_executor = executor   # cancel 时可直接 abort 它的流式响应
 
         await conn.send({"type": "status", "phase": "executing",
@@ -885,7 +885,7 @@ async def run_refine(conn: WSConnection, data: dict):
     cancel_event = asyncio.Event()
     tracker = TaskTracker(callback=lambda d: None)
     executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker,
-                             use_llm=EXEC_USE_LLM())
+                             use_llm=EXEC_USE_LLM(), api_key=LLM_API_KEY())
     try:
         await conn.send({"type": "refine_ack", "mode": mode})
         result = await asyncio.wait_for(
@@ -963,7 +963,8 @@ async def run_explain(conn: WSConnection, data: dict):
 
     if EXEC_USE_LLM():
         tracker = TaskTracker(callback=lambda t: None)
-        executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker, use_llm=True)
+        executor = AgentExecutor(LLM_BASE_URL(), LLM_MODEL(), tracker, use_llm=True,
+                                 api_key=LLM_API_KEY())
         try:
             # 解释是「用户明确发起」的请求，值得等一下推理槽
             if await asyncio.wait_for(executor._wait_strata(8), timeout=9):
@@ -1010,4 +1011,8 @@ if __name__ == "__main__":
     import uvicorn
     # 统一端口 8770（与 watchdog / README / m-instrument / 测试脚本一致）。
     # 推荐用看门狗或 `uvicorn server:app --port 8770` 启动，本分支仅作兜底。
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8770")), log_level="info")
+    # 默认只绑回环：全 API 无鉴权 + WS 无 Origin 校验 + base_url 可热改，
+    # 绑 0.0.0.0 会把「改 base_url → 触发 forecast/test → api_key 发往任意地址」
+    # 变成同网段可达的密钥外带通道。需要跨机访问时显式设 HOST=0.0.0.0。
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"),
+                port=int(os.environ.get("PORT", "8770")), log_level="info")

@@ -28,7 +28,7 @@ CHUNKS = ['国内', '电力', '交易', '市场', '以', '省', '级', '现货',
           '中长', '期合', '约与', '现货', '并行', '结算', '规则', '各省', '不同', '。']
 FULL_TEXT = ''.join(CHUNKS)
 BUSY = {'value': False}
-HITS = {'completions': 0}
+HITS = {'completions': 0, 'auth': ''}
 PASS = 0
 FAIL = 0
 
@@ -48,6 +48,7 @@ async def status(request):
 
 async def completions(request):
     HITS['completions'] += 1
+    HITS['auth'] = request.headers.get('Authorization', '')
     resp = web.StreamResponse(headers={'Content-Type': 'text/event-stream'})
     await resp.prepare(request)
     try:
@@ -118,8 +119,14 @@ async def main():
     await site.start()
     port = site._server.sockets[0].getsockname()[1]
 
-    server.LLM_BASE_URL = f'http://127.0.0.1:{port}/v1'
-    server.EXEC_USE_LLM = True
+    # 配置已函数化（llm_config）：直接改模块属性会让 server.py 里
+    # LLM_BASE_URL() 调到「str 对象」上（TypeError），改用热更新接口。
+    import llm_config
+    llm_config.update({
+        'base_url': f'http://127.0.0.1:{port}/v1',
+        'exec_use_llm': True,
+        'api_key': 'test-key-123',
+    }, persist=False)
 
     print('\n=== 1. 流式生成中收到 cancel ===')
     conn, done = await run_case(cancel_at_token=4)
@@ -179,6 +186,10 @@ async def main():
     check('3.3 任务条仍标 stop（不是 done）',
           bool(done3 and done3['tasks'] and done3['tasks'][0]['status'] == 'stop'))
     BUSY['value'] = False
+
+    print('\n=== 4. api_key 透传（AgentExecutor 带鉴权头） ===')
+    check('4.1 execute 的 /chat/completions 带 Authorization: Bearer',
+          HITS['auth'] == 'Bearer test-key-123', f"auth={HITS['auth']!r}")
 
     await runner.cleanup()
     print(f'\n=== test_cancel_backend.py: {PASS} PASS / {FAIL} FAIL ===')

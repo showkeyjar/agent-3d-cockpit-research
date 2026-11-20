@@ -45,7 +45,8 @@ def launch() -> None:
     with open(os.path.join(BACKEND_DIR, "server.log"), "ab") as logf:
         subprocess.Popen(
             [PY, "-m", "uvicorn", "server:app",
-             "--host", "0.0.0.0", "--port", str(PORT)],
+             # 默认只绑回环（全 API 无鉴权）；跨机访问显式设 HOST
+             "--host", os.environ.get("HOST", "127.0.0.1"), "--port", str(PORT)],
             cwd=BACKEND_DIR,
             stdout=logf, stderr=logf,
             creationflags=creationflags,

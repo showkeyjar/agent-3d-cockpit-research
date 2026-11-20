@@ -312,15 +312,26 @@ class AgentExecutor:
     """
 
     def __init__(self, llm_base_url: str, llm_model: str, tracker: TaskTracker,
-                 use_llm: bool = False):
+                 use_llm: bool = False, api_key: str = ""):
         self.llm_url = llm_base_url
         self.llm_model = llm_model
         self.tracker = tracker
         # 默认本地确定性执行：本机主力模型（8083）单次就要 11s，
         # 每步都等它只会把「超时」刷满任务条。模型够快时用 EXEC_USE_LLM=1 打开。
         self.use_llm = use_llm
+        # 鉴权：界面配置的云端模型（OpenAI 兼容）需要 Bearer；
+        # 本地 llama.cpp 无鉴权，默认值 "EMPTY"/空时不发头。
+        self.api_key = (api_key or "").strip()
         self._session: Optional[aiohttp.ClientSession] = None
         self._active_resp = None      # v0.9.16：正在读的流式响应，供 abort() 掐断
+
+    def _auth_headers(self) -> dict:
+        """此前 execute/refine/explain 全链路不带 Authorization：任何需鉴权的
+        OpenAI 兼容端点一律 401，静默降级成「模型未返回有效内容」且不告诉
+        用户是鉴权失败。forecaster 侧一直带（llm_forecaster._ask_llm），此处补齐。"""
+        if self.api_key and self.api_key != "EMPTY":
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -359,6 +370,7 @@ class AgentExecutor:
                     "temperature": 0.6,
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
+                headers=self._auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=25),
             ) as resp:
                 if resp.status == 200:
@@ -399,6 +411,7 @@ class AgentExecutor:
                     "stream": True,
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
+                headers=self._auth_headers(),
                 timeout=aiohttp.ClientTimeout(total=55),
             ) as resp:
                 self._active_resp = resp
@@ -693,14 +706,14 @@ class AgentExecutor:
             if _cap_on:
                 expert_after = await expert_state.snapshot_total(self.llm_url)
 
-        def make_internal_state(source_val: str, interrupted_val: bool = False) -> dict:
+        def make_internal_state(source_val: str, interrupted: bool = False) -> dict:
             if not _cap_on:
                 return expert_state.unavailable("capture_disabled") if expert_state \
                     else {"status": "unavailable", "reason": "capture_disabled"}
             try:
                 return expert_state.finalize(
                     expert_before, expert_after,
-                    source=source_val, interrupted=interrupted_val,
+                    source=source_val, interrupted=interrupted,
                     model=self.llm_model, temperature=0.6)
             except Exception:
                 return {"status": "unavailable", "reason": "capture_error"}
