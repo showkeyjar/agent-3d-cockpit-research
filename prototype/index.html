@@ -1000,6 +1000,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
           <div id="rcCompText"></div>
           <div id="rcCompAction" style="display:none;margin-top:6px;"></div>
         </div>
+        <div id="rcTerminal" style="display:none;margin:0 0 9px;padding:7px 10px;border:1px solid rgba(52,245,160,.38);border-radius:8px;background:rgba(52,245,160,.06);color:#9dffcf;font-size:11px;line-height:1.6;"></div>
         <div class="rc-out" id="rcOutput"></div>
         <div id="rcRefining" style="display:none;margin-top:9px;padding:8px 10px;border:1px solid rgba(95,224,255,.32);border-radius:8px;background:rgba(95,224,255,.05);color:#8fd8f5;font-size:12px;line-height:1.6;">
           <span class="spin" style="display:inline-block;width:9px;height:9px;margin-right:6px;border:2px solid rgba(95,224,255,.3);border-top-color:#5ee0ff;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;"></span>
@@ -1865,6 +1866,10 @@ const CAM_PITCH_MIN = -0.55, CAM_PITCH_MAX = 0.50;
 // v0.9.11.4：dist = 「后挂距离」（相机在载具后方多远），不再是俯视半径；
 // 范围收窄到 3–18m——近了贴车，远了路感全失。沉浸模式（i 键 dist 3.4）仍有效。
 const CAM_DIST_MIN  = 3,    CAM_DIST_MAX  = 18;
+// v0.9.49：到达牌沉在路面下 1.05m、眼位 1.35m；相机拉近到 <3.4m 时俯视会把牌挤出
+// 视锥下缘（实测 dist=3 → 牌中心 NDC y=-0.96，看不见；dist=3.4 → ≈-0.85，完整可见）。
+// 画面里有 -2 到达牌时滚轮拉近下限抬到 3.4（与沉浸模式 I 键同值），避免「滚动一下结果牌就没了」。
+const ARRIVAL_MIN_VIEW_DIST = 3.4;
 
 function resetCamera(){
   // R 键复位的是「视线」：回到当前这条路的正前方；机位(camAnchorYaw)由路决定，不在这里改。
@@ -1941,12 +1946,26 @@ canvas.addEventListener('wheel', e => {
   e.preventDefault();
   manualCamDirty = true;   // 滚轮缩放 = 手动干预
   _manualHoldUntil = performance.now() + 3000;   // 缩放后 3 秒自动回归主轴
-  // 按当前距离比例缩放，远近手杆一致
-  cam.distT = Math.max(CAM_DIST_MIN, Math.min(CAM_DIST_MAX,
+  // v0.9.49：有 -2 到达牌时，拉近下限抬到 ARRIVAL_MIN_VIEW_DIST(3.4)——
+  // 否则沉在路面下的结果牌会被俯视挤出视锥下缘，看起来「滚动一下就没了」。
+  // 拉远上限不变；无到达牌（纯候选探索态）仍可拉近到 CAM_DIST_MIN(3)。
+  const _hasArrival = branchSigns.some(s => s.userData && s.userData.branchId === -2);
+  const _lo = _hasArrival ? Math.max(CAM_DIST_MIN, ARRIVAL_MIN_VIEW_DIST) : CAM_DIST_MIN;
+  cam.distT = Math.max(_lo, Math.min(CAM_DIST_MAX,
                        cam.distT * (1 + Math.sign(e.deltaY) * 0.1)));
 }, {passive:false});
 
 window.addEventListener('keydown', e => {
+  // v0.9.45：任何文本输入框聚焦时，单字母/符号全局快捷键一律让位给文字输入。
+  // 旧版只排除 msgInput / customDirInput，漏掉结果卡的 rcFollowInput（继续深化）
+  // 与底部 dockAnswerInput（回答）——在这些框里打字，字母 v 会误触发立体分屏
+  // （"两个屏幕"），t 误开时间线、d 误开溯源链、r/i/c/z  likewise。
+  // Escape 例外：执行中仍要能停止生成 / 收起面板，与输入语义不冲突。
+  {
+    const _ae = document.activeElement;
+    const _typing = _ae && (_ae.tagName === 'INPUT' || _ae.tagName === 'TEXTAREA' || _ae.isContentEditable);
+    if (_typing && e.key !== 'Escape') return;
+  }
   // v0.9.19：空闲且未开时间线时，Esc 先退出键盘选路（优先级高于时间线收起 / 停止生成）
   if (e.key === 'Escape' && _kbGroup !== null && execInfo.done &&
       !document.getElementById('timelinePanel')?.classList.contains('show')){
@@ -2551,7 +2570,7 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.44';
+const TL_VERSION = 'v0.9.49';
 const TL_SESSION_STARTED = new Date().toISOString();
 
 /* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
@@ -3057,7 +3076,7 @@ function sendMessage(){
   // v0.9.37：新提问记一条会话事件（脉络视图按时间与执行轮交织）。
   _sessionEvents.push({ kind:'question', ts:new Date().toISOString(), text,
                         label:'新问题' });
-  clearBranches();   // 清掉上一轮的岔路：动画从干净画面开始，不让用户把旧分叉当成新问题的
+  clearBranches({keepArrival:true});   // v0.9.49：清掉上一轮岔路，但保留已走完的结果牌（真进展凭据，P3）
   // 先画出前方潜在的路径骨架（未点亮）：路一直在这里，推演只是把它们点亮
   drawPotentialSkeleton(userNode.pos);
   // v0.9.37：新问题带上本会话真实历史摘要（语义连续性）。摘要进 LLM 上下文，
@@ -3529,20 +3548,22 @@ function buildNowMarker(pos){
    「你用什么内部状态走到了这里」。绝不贴到前方未执行的候选细枝上（那里没有指纹）。
    只编码聚合 dist（512 维），不编码逐 token（=新剧场）；unavailable 不生成。
    不碰机位/轨道/到达牌/分支拾取：独立数组 + 独立拾取函数。 */
-function buildFingerprintRing(pos, st, yaw){
+function buildFingerprintRing(pos, st, yaw, opts={}){
   const dist = st && st.status === 'available' && Array.isArray(st.dist) ? st.dist : [];
   if (!dist.length) return null;
   const g = new THREE.Group();
   const n = dist.length;                       // 512（真实专家数）
   const max = Math.max(...dist) || 1;
-  const R = 0.9;                               // 竖直盘半径（吸附「现在」节点，略小于 nowMarker 外环）
+  // v0.9.47：放大增强——旧版 R=0.9/条长≤0.31/透明度≤0.68 在巡航机位下几乎看不见，
+  // 用户实测反馈「一点效果都看不出来」。半径翻倍、条更长更亮，让真信号一眼可辨。
+  const R = 1.7;                               // 竖直盘半径（放大约 1.9×）
   const cool = new THREE.Color('#5ee0ff'), warm = new THREE.Color('#ffb13d');
   // 512 段径向条（本地 XY 平面，整组转向相机 → 从任意机位都读得出圆盘）。
   // 长度 = 该专家命中占比（归一化到 max）。真信号，逐段可读。
   for (let i = 0; i < n; i++){
     const f = Math.max(0, Math.min(1, dist[i] / max));
     const a = (i / n) * Math.PI * 2;
-    const len = 0.05 + f * 0.26;
+    const len = 0.06 + f * 0.62;               // 条长最高 0.68（旧 0.31 的两倍多）
     const r0 = R, r1 = R + len;
     const pts = [
       new THREE.Vector3(Math.cos(a)*r0, Math.sin(a)*r0, 0),
@@ -3551,27 +3572,30 @@ function buildFingerprintRing(pos, st, yaw){
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
     const col = cool.clone().lerp(warm, f);
     const mat = new THREE.LineBasicMaterial({color:col, transparent:true,
-      opacity:0.26 + f*0.42, blending:THREE.AdditiveBlending, depthWrite:false});
+      opacity:0.42 + f*0.5, blending:THREE.AdditiveBlending, depthWrite:false});
     g.add(new THREE.Line(geo, mat));
   }
   // 底环：明确这是一圈「指纹刻度」，不是路
-  const base = new THREE.Mesh(new THREE.TorusGeometry(R, 0.01, 4, 64),
-    new THREE.MeshBasicMaterial({color:0x5ee0ff, transparent:true, opacity:0.18,
+  const base = new THREE.Mesh(new THREE.TorusGeometry(R, 0.014, 4, 96),
+    new THREE.MeshBasicMaterial({color:0x5ee0ff, transparent:true, opacity:0.32,
       blending:THREE.AdditiveBlending, depthWrite:false}));
   g.add(base);
   // 可点核心：点开 512 维直方图 + 来源核对（独立 userData.fingerprint）
-  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 1),
-    new THREE.MeshBasicMaterial({color:0x9fd8ff, transparent:true, opacity:0.5,
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 1),
+    new THREE.MeshBasicMaterial({color:0x9fd8ff, transparent:true, opacity:0.72,
       blending:THREE.AdditiveBlending, depthWrite:false}));
   core.userData.fingerprint = st;
   g.add(core);
   g.userData.fingerprint = st;
   g.userData.branchId = -6;   // 专用负 id，不参与分支拾取/熄灭
-  // 吸附到「现在」节点（不是自由漂浮——自由位置会随语义变化压到任意路牌）。
-  // nowMarker 双环在 y=pos-0.2、半径 1.1/1.55；指纹竖直盘挂中心 y+1.2、半径 0.9，
-  // billboard 正对相机。真实落位时相机在 now 后方 cam.dist 处，环稳定出现在下方空区。
+  g.userData.ringRadius = R;  // v0.9.47：放大实测钩子
+  g.userData.attachedY = Number.isFinite(opts.yLift) ? opts.yLift : 1.2;
+  // v0.9.47：挂高可配——铺路态挂「现在」节点上方；结果态改挂到到达牌 p 附近（opts.yLift）。
+  // nowMarker 双环在 y=pos-0.2、半径 1.1/1.55；指纹竖直盘 billboard 正对相机。
+  // 环半径已放大到 1.7，挂高也要抬，避免盖住下方路面/到达牌。
   const yw = yaw || 0;
-  g.position.set(pos[0], pos[1] + 1.2, pos[2]);
+  const yLift = Number.isFinite(opts.yLift) ? opts.yLift : 1.2;
+  g.position.set(pos[0], pos[1] + yLift, pos[2]);
   // 环绕 Y 初始朝向视线；animate 每帧 billboard 覆盖为完全正对相机（只转环自身）。
   g.rotation.y = Math.atan2(Math.cos(yw), Math.sin(yw));
   _fingerprintMeshes = [core];
@@ -3589,10 +3613,21 @@ function clearFingerprintRing(){
   _fingerprintData = null;
 }
 
+/* v0.9.47：结果态指纹环重建——执行落位后，用「本轮」internal_state 在到达牌 p 上方重建。
+   数据源纪律不变：只认 available 真指纹；B2 组（_noFingerprint）由调用方门控，这里不判断。
+   与铺路态的唯一区别：位置换成到达点、挂高抬高、用的是刚完成这一轮的指纹（不是上一轮）。 */
+function rebuildFingerprintAtArrival(p, st){
+  clearFingerprintRing();
+  if (!p || !st || st.status !== 'available') return false;
+  _fingerprintRing = buildFingerprintRing(p, st, travelYaw, { yLift:1.4 });
+  if (_fingerprintRing){ roadGroup.add(_fingerprintRing); return true; }
+  return false;
+}
+
 /* ── 应用推演结果 ── */
 function applyForecastResult(msg){
   _lastForecastMsg = msg;   // 保存完整推演结果，回退后重建岔路
-  clearBranches();
+  clearBranches({keepArrival:true});   // v0.9.49：新一轮推演铺候选牌，不抹掉已到达的结果牌
   const candidates = msg.candidates || [];
   const mode = msg.execution_mode || 'choice';
 
@@ -3635,9 +3670,11 @@ function applyForecastResult(msg){
   hideResultCard();
   resetTaskBar();
 
+  // v0.9.49：重建岔牌数组时保留 keepArrival 留下的 -2 到达牌/环（真进展凭据，P3），
+  // 只让节点球归零；旧版这三行无条件清空，会把 clearBranches 保留的到达牌引用丢掉。
   branchNodeMeshes = [];
-  branchTubes = [];
-  branchSigns = [];
+  branchTubes   = branchTubes.filter(t => t.userData && t.userData.branchId === -2);
+  branchSigns   = branchSigns.filter(s => s.userData && s.userData.branchId === -2);
 
   const cur = journey.length > 0 ? journey[journey.length-1].pos : [0,0,0];
   _branchPositions = [];
@@ -3761,7 +3798,9 @@ function applyForecastResult(msg){
   if (candidates.length > 0){
     const n = candidates.length;
     const baseAng = travelYaw;
-    const totalSpread = n > 1 ? (0.34 + tight * 0.92) : 0;
+    // v0.9.47：整体左右展开取中间值——太窄同簇牌重叠，太宽最外侧牌被左右面板裁掉。
+    // 双侧面板占了屏幕两边，候选带必须收在中间的可视锥内（约 ±0.5rad）。
+    const totalSpread = n > 1 ? (0.34 + tight * 0.62) : 0;
     const num = (c, k) => { const v = Array.isArray(c.pos3d) ? Number(c.pos3d[k]) : 0; return Number.isFinite(v) ? v : 0; };
     const px = candidates.map(c => num(c, 0));
     const py = candidates.map(c => num(c, 1));
@@ -3802,11 +3841,12 @@ function applyForecastResult(msg){
     const dirOf = a => [Math.cos(a), Math.sin(a)];
     const trunkLen = 2.4 + tight * 0.9;
     const d0 = dirOf(baseAng);
-    const F0 = [cur[0] + d0[0]*trunkLen, cur[1] + 0.18, cur[2] + d0[1]*trunkLen];
+    const F0 = [cur[0] + d0[0]*trunkLen, cur[1] + 0.10, cur[2] + d0[1]*trunkLen];
     const J = groups.map((_, gi) => {
       const dg = dirOf(groupAng[gi]);
       const len = 2.0 + tight * 1.0 + (gi % 2) * 0.35;
-      return [F0[0] + dg[0]*len, F0[1] + 0.22 + (gi % 2) * 0.12, F0[2] + dg[1]*len];
+      // v0.9.46：分叉点近乎贴水平面（旧抬升 0.22+0.12→0.08+0.04）。
+      return [F0[0] + dg[0]*len, F0[1] + 0.08 + (gi % 2) * 0.04, F0[2] + dg[1]*len];
     });
     // 弯曲控制点：每段的抬升/侧偏都不同，避免所有路是同一条抛物线
     const bend = (a, b, lift, side) => {
@@ -3825,11 +3865,12 @@ function applyForecastResult(msg){
       return tube;
     };
     // 主干共用：非候选专属，branchId 为负——不参与拾取，也不会被 markBranchTravelled 熄灭
-    addSegment([cur, bend(cur, F0, 0.3, 0), F0], 0.075, '#8fd0ff', 0.42,
+    addSegment([cur, bend(cur, F0, 0.10, 0), F0], 0.075, '#8fd0ff', 0.42,
                { kind:'trunk', branchId:-11, isBranch:false });
     // 簇分叉段：同簇共用、中性色，视觉上直接读出「这几条先一起走」
     groups.forEach((_, gi) => {
-      addSegment([F0, bend(F0, J[gi], 0.42 + (gi % 2) * 0.2, gi % 2 ? 0.22 : -0.22), J[gi]],
+      // v0.9.46：簇骨架也贴平——抬升 0.28→0.10，横向甩动 ±0.09→±0.05。
+      addSegment([F0, bend(F0, J[gi], 0.10 + (gi % 2) * 0.04, gi % 2 ? 0.05 : -0.05), J[gi]],
                  0.065, '#7fb8ff', 0.38, { kind:'group', branchId:-100-gi, forkGroup:gi, isBranch:false });
       const jm = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
         new THREE.MeshBasicMaterial({color:0x7fb8ff, transparent:true, opacity:0.55, depthWrite:false}));
@@ -3839,7 +3880,12 @@ function applyForecastResult(msg){
     });
 
     // ④ 候选细枝：真正的「待选」段，颜色=候选色 + 虚线
-    const intraSpread = Math.min(0.30, totalSpread / Math.max(2, n) * 1.8);
+    // v0.9.47：水平弧形扇开。v0.9.46 用 siblingR=±3.4 把同簇兄弟在「深度」上前后拉开，
+    // 低机位下排成一长串、更难区分——这是根因，本版彻底删除 siblingR。
+    // 新布局：整条候选带是一条水平抛物弧——中间近、两侧略远（纵深由离中心的左右距离决定），
+    // 同簇兄弟只靠「左右角度」分开（角度仍小于异簇，守住语义拓扑契约），不再前后排队。
+    // 同簇内的角度分散略放大，让兄弟牌在水平面上真正左右错开（不再靠深度/高度）。
+    const intraSpread = Math.min(0.30, totalSpread / Math.max(2, n) * 1.6);
     candidates.forEach((c, i) => {
       const gi = groupOf[i];
       const g = groups[gi];
@@ -3847,20 +3893,32 @@ function applyForecastResult(msg){
       const localIdx = g.indexOf(i);
       // 同簇内按语义 X 微展开；px 全同则用序号给最小间隔，避免牌重叠
       const xOff = Math.min(1, Math.abs(px[i] - gpx[gi]) / 3) * (px[i] >= gpx[gi] ? 1 : -1);
-      const jitter = g.length > 1 ? (localIdx - (g.length-1)/2) * 0.06 : 0;
+      // v0.9.47：同簇兄弟的角度抖动脉冲加大（0.06→0.28），让两牌在屏幕上真正左右错开。
+      // 契约仍守：同簇角度差远小于异簇（异簇屏幕间距约 240px，同簇拉开后约 170px）。
+      const jitter = g.length > 1 ? (localIdx - (g.length-1)/2) * 0.28 : 0;
       const ang = groupAng[gi] + (xOff * 0.72 + jitter) * intraSpread;
       const depth = Math.max(-1, Math.min(1, pz[i] / 8));
       const height = Math.max(-1, Math.min(1, py[i] / 8));
-      const r = 8.0 + depth * 2.0 + semanticDiv * 1.0;
-      // 高度按语义高度 + 簇序号错落，不再随 rank 单调爬升成一条斜线；
-      // 同簇内部再上下分层——共用同一段骨架的兄弟牌若只靠小角度分开会互相遮挡。
-      const siblingLift = g.length > 1 ? (localIdx - (g.length-1)/2) * 2.2 : 0;
-      const dy = height * 0.9 + ((gi % 3) - 1) * 0.42 + semanticDiv * 0.3 + siblingLift;
+      // v0.9.47 弧形纵深：离正前方越远(左右两端)的候选略退后，画出一条水平弧，
+      // 中间略近、两侧略远——有轻微空间纵深感，但仍在同一个水平高度带。
+      // arcDepth 用归一化角度偏移的平方，弧度温和（最多 retreat 1.2m），不排成长串。
+      const offNorm = Math.min(1, Math.abs(ang - baseAng) / (totalSpread/2 || 1));
+      const arcDepth = offNorm * offNorm * 1.2;
+      // 同簇兄弟给极小的深度错落（±0.6，远小于 v0.9.46 的 ±3.4）：配合更大的展开角
+      // 消除投影残余重叠，但幅度不足以在低机位排成"一长串"。
+      const siblingR = g.length > 1 ? (localIdx - (g.length-1)/2) * 2.6 : 0;
+      const r = 7.8 + depth * 1.0 + semanticDiv * 0.8 + arcDepth + siblingR;
+      // 高度只留极轻微起伏（保持"非单调、非斜线"契约），整体压在同一个水平带内。
+      // 同簇兄弟不再靠高度堆叠，只保留极小的语义高度差避免完全平叠。
+      const siblingLift = g.length > 1 ? (localIdx - (g.length-1)/2) * 0.28 : 0;
+      const dy = height * 0.22 + ((gi % 3) - 1) * 0.14 + semanticDiv * 0.14 + siblingLift;
       const bpos = [cur[0] + Math.cos(ang)*r, cur[1] + dy, cur[2] + Math.sin(ang)*r];
       _branchPositions.push(bpos);
 
-      const twigLift = 0.35 + semanticDiv * 0.3 + ((i % 2) ? 0.12 : 0);
-      const twigSide = ((i % 2) ? 0.18 : -0.18) * (0.6 + semanticDiv);
+      // v0.9.46：细枝抬贴水平面——lift 0.35→0.10，side 0.18→0.05，近乎贴着地面连到终点，
+      // 不再向上拱起成树的枝桠。
+      const twigLift = 0.10 + semanticDiv * 0.08 + ((i % 2) ? 0.04 : 0);
+      const twigSide = ((i % 2) ? 0.05 : -0.05) * (0.6 + semanticDiv);
       const twig = [J[gi], bend(J[gi], bpos, twigLift, twigSide), bpos];
       const color = c.color || '#ff5fe0';
       addSegment(twig, 0.05 + semanticDiv * 0.012, color, 0.24 + tight * 0.06,
@@ -3885,8 +3943,10 @@ function applyForecastResult(msg){
 
       // 3D 路标：高度偏移保持原值 +2.7（点击测试与拾取契约不变）
       // v0.9.39：用候选索引生成差异化文案，四条路是四种说法（同簇兄弟靠 i 不同也错开）
+      // v0.9.45：路牌 3.4→2.9 缩窄，减少同簇兄弟/modality 层之间的投影遮挡；
+      // 牌高偏移 +2.7 与拾取契约保持原值不变。
       const _copy = signCopy(c, i);
-      const sign = makeSign(c.label, _copy.sub, color, 3.4, _copy.hint);
+      const sign = makeSign(c.label, _copy.sub, color, 2.1, _copy.hint);
       sign.position.set(bpos[0], bpos[1] + 2.7, bpos[2]);
       sign.userData.branchId = i;
       roadGroup.add(sign);
@@ -3949,29 +4009,40 @@ function clearLayerRings(){
   layerRings = [];
 }
 
-/* ── 清除分支 ── */
-function clearBranches(){
+/* ── 清除分支 ──
+   v0.9.49：opts.keepArrival=true 时保留已到达的结果牌（-2）及其到达环、_arrivalResults，
+   只清候选牌/未来牌/骨架/指纹环/风景。用于「发新问题/新一轮推演」——已走完的站是
+   真进展的空间凭据（P3 可追溯），不该因为开了新一轮就凭空消失。
+   显式回退（撤销这一站）与整体 reset 走默认全清，语义不变。
+   注意：到达牌的 userData.arrivalDetail 自带完整结论，点牌不依赖 _arrivalResults 单值 Map；
+   保留多块 -2 牌沿轨迹累积，与 journey[].arrivalDetail / 里程碑一致。 */
+function clearBranches(opts){
+  const keepArrival = !!(opts && opts.keepArrival);
   clearLayerRings();
   clearFingerprintRing();  // v0.9.41：指纹环随新一轮推演重建（available 才重新生成）
   clearFutureSigns();
   clearScenery();          // 新任务/回退：上一轮上下文的概念图卡一并清空，避免不同任务的风景混在一起
-  _arrivalResults.clear();
+  if (!keepArrival) _arrivalResults.clear();
   _futureCandidates = [];
   branchNodeMeshes.forEach(m => {
     roadGroup.remove(m);
     m.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
   });
   branchNodeMeshes = [];
-  branchTubes.forEach(t => {
+  // 到达环（branchId=-2 的 tube）：keepArrival 时保留，随结果牌一起留作进展凭据
+  branchTubes = branchTubes.filter(t => {
+    if (keepArrival && t.userData.branchId === -2) return true;
     roadGroup.remove(t);
     t.geometry.dispose(); t.material.dispose();
+    return false;
   });
-  branchTubes = [];
-  branchSigns.forEach(s => {
+  // 到达牌（-2）：keepArrival 时保留；其余候选/未来牌照常回收
+  branchSigns = branchSigns.filter(s => {
+    if (keepArrival && s.userData.branchId === -2) return true;
     roadGroup.remove(s);
     s.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    return false;
   });
-  branchSigns = [];
   forkSegments = [];
   if (nowMarker){
     roadGroup.remove(nowMarker);
@@ -4382,6 +4453,7 @@ function showResultCard(d){
   // 因提前 return 而残留上一次的显示态。
   const _deliverReset = document.getElementById('rcDeliver'); if (_deliverReset) _deliverReset.style.display = 'none';
   const _compReset = document.getElementById('rcCompletion'); if (_compReset) _compReset.style.display = 'none';
+  const _termReset = document.getElementById('rcTerminal'); if (_termReset) _termReset.style.display = 'none';
   const _ib = document.getElementById('rcInterruptBar');
   if (_ib){ _ib.style.display = 'none'; _ib.textContent = ''; }
   const _ih = document.getElementById('rcInteract'); if (_ih) _ih.style.display = '';
@@ -4627,7 +4699,7 @@ function showResultCard(d){
 
   document.getElementById('rcBadge').textContent = d.ok ? '✓' : '!';
   document.getElementById('rcTitle').textContent = d.ok
-    ? (d.title || (d.mode === 'sequential' ? '全部步骤走完了' : '这一步做完了'))
+    ? (d.terminal ? '问题已解答' : (d.title || (d.mode === 'sequential' ? '全部步骤走完了' : '这一步做完了')))
     : '这一步没走通';
   document.getElementById('rcSubtitle').textContent =
     `${d.label || '这一步'} · ${d.count} 步 · ${d.elapsed}`;
@@ -4773,6 +4845,20 @@ function showResultCard(d){
       document.querySelectorAll('.branch-card.dimmed').forEach(el => el.classList.remove('dimmed'));
       showToast('点其他路牌或卡片，就能换一条路', '#5ee0ff');
     });
+  }
+  // v0.9.48 终态：事实问答答完即止，不自动铺下一批路。
+  // 给用户一句明确的「已解答」交代（否则用户以为卡住/没下一步），并把「继续探索」
+  // 变成显式按钮——只有用户主动点才触发 autoExploreNext，断掉机械续探的死循环。
+  if (d.terminal){
+    const termBar = document.getElementById('rcTerminal');
+    if (termBar){
+      termBar.style.display = 'block';
+      termBar.textContent = '这是一个一问一答的问题，答案已在上方给出，到此为止。想换角度深挖，可点下方「继续探索相关方向」——由你决定，不会自动铺路。';
+    }
+    mk('继续探索相关方向 →', false, () => continueExploringFromCard(d));
+  } else {
+    const termBarHide = document.getElementById('rcTerminal');
+    if (termBarHide) termBarHide.style.display = 'none';
   }
   mk(d.ok ? '重新推演' : '重试', false, () => {
     hideResultCard();
@@ -6681,6 +6767,30 @@ function bigrams(s){
   for (let j = 0; j + 1 < clean.length; j++) out.add(clean.slice(j, j + 2));
   return out;
 }
+// v0.9.48 · 终态判定（类型分流）：事实问答/列举类问题「答完即止」，答完不自动铺下一批路。
+// 三层稳健判据，任一命中即终态：
+//   ① 后端下发的 execution_mode === 'direct'（LLM 判为一问一答）；
+//   ② 确定性「事实列举/定义问句」识别——LLM 判定不稳定（同一用例两次分别判 direct/choice），
+//      不能只靠它，否则 choice 那次仍会落回死循环；
+//   ③ 多步流程 'sequential' 永不判终态（它本就要一步步走）。
+// 仅决定「到达后是否自动续探」，不碰账本/达成度/机位/指纹环/真实执行——P1–P4 不变量不变。
+// 到达续探门控：与 postDriveArrival 里的条件保持同一处真相（测试钩子直接读它）。
+function shouldAutoExplore(p, detail, terminal){
+  return !!(p && detail && !detail.clarify && !terminal);
+}
+function isTerminalTask(context, mode, taskKind){
+  if (mode === 'sequential') return false;              // 顺序流程：继续走下一步
+  if (mode === 'direct') return true;                    // 后端明确一问一答
+  // mode==='choice' 或缺失：确定性兜底识别「一次性事实问答」。
+  // 命中「有哪些/什么是/列举/推荐几个/定义」等问句 → 一个答案即可满足，答完即止。
+  const t = String(context || '').trim();
+  if (!t) return false;
+  const FACT_Q = /(有哪些|哪些|什么是|什么叫|是什么|含义|意思是?|定义|列举|列出|举几个|推荐几|推荐一些|常见的|主流的|都有什么|包括哪些|哪几种|哪几个|多少个|多少种|分别是什么|分别是哪些)/;
+  // 强问句框架（有哪些/什么是/定义）已是「要一个答案」的信号。只有明确要求产出文档
+  // （写一段/生成一份/整理成…）才否定——不能用「预测」这种领域名词误伤（"风机功率预测算法"）。
+  const WRITE_PRODUCT = /(写一段|写一篇|生成一份|整理成|出一份|写一份|起草|拟一份|并生成|出报告)/;
+  return FACT_Q.test(t) && !WRITE_PRODUCT.test(t);
+}
 function alreadyDone(candidate, prevLabels){
   const bg = bigrams(candidate);
   if (bg.size === 0) return false;
@@ -6786,6 +6896,21 @@ function autoExploreNext(arrivalPos, doneLabel, doneSteps){
       drawFutureSignsFallback(arrivalPos, doneLabel);
       showToast('后端未连接，下一方向为前端固定模板', '#ffb13d');
     });
+}
+
+// v0.9.48：终态结果卡的「继续探索相关方向」按钮——用户主动才续探，
+// 与自动续探走同一条 autoExploreNext 链路（真实 fast 推演 + 凭据上屏），不新增机制。
+function continueExploringFromCard(d){
+  const pos = (d && Array.isArray(d.pos) && d.pos.length === 3) ? d.pos : [8, 0, 8];
+  const label = (d && d.label) || '';
+  const steps = ((d && Array.isArray(d.tasks) ? d.tasks : []) || [])
+    .map(t => t.sub || t.name || '完成');
+  hideResultCard();
+  activeBranch = -1;
+  advanceSpine();
+  autoExploreNext(pos, label, steps.length ? steps : [label || '完成']);
+  showToast('已按你的要求推演相关方向', '#5ee0ff');
+  return true;
 }
 
 /* 等待期占位牌：分支 id=-9，永不进入未来牌点击区间（pickBranch 的
@@ -6959,6 +7084,8 @@ function finishExecution(ok, note='', detail={}){
       internal_state: detail.internal_state,
       pos: p ? [p[0], p[1], p[2]] : null,   // F3.2：结果的空间锚点——卡能定位回 3D
       branchLabel: c.label || '',           // F3.2：这条路叫什么（卡上显示"你在哪条路上"）
+      // v0.9.48：终态标记（事实问答答完即止）。澄清/失败不可能是终态。
+      terminal: ok && !detail.clarify && isTerminalTask(_lastContext || '', mode, detail.task_kind),
     };
     // 澄清场景：这一步并未真正走完——不要伪造「完成到达牌」、不要提前铺下一条路、
     // 也不要写入轨迹，否则会把「暂停等用户输入」误记为「已完成的进展」（P3 可追溯）。
@@ -6972,6 +7099,10 @@ function finishExecution(ok, note='', detail={}){
     }
     _arrivalResults.set(-2, arrivalDetail);
     showResultCard(arrivalDetail);
+    // v0.9.47 修时序：用「本轮」真实指纹在结果牌附近重建环。
+    // 旧版环只在铺路时按上一轮指纹建在起点，执行完机位开走后环被甩在身后——
+    // 用户看到结果的那一刻恰恰看不到、也看不到本轮信号。现在落位即用本轮指纹重建。
+    if (!window._noFingerprint) rebuildFingerprintAtArrival(p, detail.internal_state);
     rebuildMilestones();                                   // v0.9.23：每步收尾沿主轴铺出结论里程碑
     // v0.9.17：逐轮账本在结果落位时写入（含澄清 / 失败，状态如实区分）
     recordRun(arrivalDetail, detail.clarify ? 'clarify' : (ok ? 'done' : 'failed'));
@@ -6982,7 +7113,11 @@ function finishExecution(ok, note='', detail={}){
     // 自主探察下一步：走完一条路后，系统主动铺出"未来可能的路"，
     // 而不是等用户再问一次才出岔口。带上已完成的步骤，避免重复列刚走完的路。
     // 澄清 = 任务尚未完成，不铺后续路、不推进主轴、不写轨迹。
-    if (p && !detail.clarify){
+    // v0.9.48 类型分流+终态：事实问答（如"有哪些算法"）是「答完即止」，
+    //   自动续探会把用户拖进「换词模板→再铺一批」的死循环（实测 5 轮机械交替）。
+    //   终态不再自动铺路；想继续由结果卡上的「继续探索」显式按钮触发（用户主动）。
+    //   非终态（choice/sequential 开放任务）保持原自主续探，不破坏探索体验。
+    if (shouldAutoExplore(p, detail, arrivalDetail.terminal)){
       activeBranch = -1;      // 刚走完的路已标记完成，复位岔路索引——否则 autoExploreNext 回来的
                                  // 回调里 activeBranch>=0 恒真，新牌被永远作废
       advanceSpine();   // 主轴滚动到刚走完这条的方向、层数+1 → 下一批岔路「沿着走」展开
@@ -7550,9 +7685,11 @@ function animate(){
   // 只改环自身朝向，绝不碰相机/机位/camAnchorYaw。
   if (_fingerprintRing){
     _fingerprintRing.quaternion.copy(camera.quaternion);
-    // 相机贴脸时（回退到起点/极端机位）隐藏，避免环被近裁剪面裁成碎片或糊住画面
+    // 相机贴脸时（回退到起点/极端机位）隐藏，避免环被近裁剪面裁成碎片或糊住画面。
+    // v0.9.47：环半径放大到 1.7、条长到 0.68，阈值同步从 1.2 抬到 2.0——否则结果态
+    // 停靠（cam.dist=5）时机位靠近环会被误判贴脸而隐藏，正好在最该看见时看不见。
     const _wp = new THREE.Vector3(); _fingerprintRing.getWorldPosition(_wp);
-    _fingerprintRing.visible = camera.position.distanceTo(_wp) > 1.2;
+    _fingerprintRing.visible = camera.position.distanceTo(_wp) > 2.0;
   }
 
   if (renderer.xr.isPresenting){ if (window.__p6Env) window.__p6Env.xrRenders++; renderer.render(scene, camera); }
@@ -7634,8 +7771,12 @@ init();
                minDist:dist.length ? Math.min(...dist) : 0,
                source:st.source || '', endpoint:st.endpoint || '', model:st.model || '',
                n_expert:st.n_expert || 0, status:st.status || 'unavailable',
-               branchId:_fingerprintRing.userData.branchId };
+               branchId:_fingerprintRing.userData.branchId,
+               ringRadius:_fingerprintRing.userData.ringRadius || 0,
+               attachedY:_fingerprintRing.userData.attachedY || 0,
+               worldPos:(()=>{ const v=new THREE.Vector3(); _fingerprintRing.getWorldPosition(v); return [v.x,v.y,v.z]; })() };
     },
+    _rebuildFingerprintAtArrivalForTest(p, st){ return rebuildFingerprintAtArrival(p, st); },
     _showFingerprintPanelForTest(st){ showFingerprintPanel(st || _fingerprintData); return true; },
     get fingerprintPanelText(){ const el = document.getElementById('fpPanel'); return el ? el.textContent : ''; },
     get fingerprintPanelOpen(){ const el = document.getElementById('fpPanel'); return !!(el && el.classList.contains('show')); },
@@ -7823,6 +7964,23 @@ init();
       if (_tlSelected === r.run_id) renderTlDetail(r);
       return JSON.parse(JSON.stringify(r.exec.internal_state));
     },
+    // v0.9.48 类型分流+终态：判定函数 / 到达终态读数 / 显式续探钩子
+    isTerminalTaskForTest(ctx, mode, kind){ return isTerminalTask(ctx, mode, kind); },
+    shouldAutoExploreForTest(p, detail, terminal){ return shouldAutoExplore(p, detail, terminal); },
+    _showTerminalCardForTest(){
+      const d = {ok:true, mode:'choice', label:'查算法清单', title:'这一步做完了', count:1,
+        elapsed:'1.5s', output:'主流算法：物理建模、ARIMA、XGBoost、LSTM 等。',
+        source:'llm', tasks:[{name:'output', sub:'列主流算法'}], context:window._lastContext || '',
+        pos:[8,0,8], terminal:true};
+      _arrivalResults.set(-2, d);
+      showResultCard(d);
+      return { title:document.getElementById('rcTitle').textContent,
+               termBar:getComputedStyle(document.getElementById('rcTerminal')).display !== 'none',
+               actions:document.getElementById('rcActions').textContent };
+    },
+    get lastArrivalTerminal(){ return !!( (_arrivalResults.get(-2) || {}).terminal ); },
+    get rcTerminalVisible(){ const e = document.getElementById('rcTerminal'); return !!e && getComputedStyle(e).display !== 'none'; },
+    continueExploringForTest(){ return continueExploringFromCard(_arrivalResults.get(-2) || {}); },
     get timelineOpen() { return document.getElementById('timelinePanel').classList.contains('show'); },
     get timelineCount() { return document.getElementById('tlCount').textContent; },
     get timelineNodes() { return document.querySelectorAll('#tlStrip .tl-node').length; },
@@ -7929,6 +8087,17 @@ init();
     // 验证后端返回 source=local 时未来牌是否如实标成兜底）
     _exploreNext(pos, label, steps){ autoExploreNext(pos || [8,0,8], label || '先查资料', steps || []); },
     THREE, camera, canvas, resetCamera, clearBranches,
+    applyForecastResultForTest(msg){ applyForecastResult(msg || {}); return true; },  // v0.9.49 回归：推演重铺不抹到达牌
+    // v0.9.49 回归：把相机直接落到「到达停靠态」（与 driveTo arrivalDock 落位参数一致），
+    // 供搭景测试验证「有到达牌时拉近下限」的视锥效果，无需跑真实 90s LLM 执行链。
+    dockCameraForTest(){
+      cam.dist = cam.distT = ARRIVAL_CAM_DIST;
+      cam.pitch = cam.pitchT = ARRIVAL_CAM_PITCH;
+      cam.yaw = cam.yawT = camAnchorYaw;
+      cam.pan.set(0,0,0); cam.panT.set(0,0,0);
+      _camDocked = true;
+      return {dist:cam.dist, pitch:cam.pitch, docked:_camDocked};
+    },
     projectToScreen(x, y, z) {
       const v = new THREE.Vector3(x, y, z).project(camera);
       return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
