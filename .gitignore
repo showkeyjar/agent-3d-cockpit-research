@@ -24,3 +24,11 @@ start.bat
 _probe_near.js
 _verify_llm_overwrite.js
 test_allbranches.js
+
+# ── 促销素材与录制脚本（16.7MB，按既定策略不入库；策略原在 .workbuddy/memory，现落到 git 侧可见）──
+docs/assets/
+docs/PROMO-BLOG*.html
+prototype/record_demo*.js
+prototype/verify_blog*.js
+prototype/verify_wechat.js
+prototype/probe_clean.js
