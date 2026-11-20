@@ -95,10 +95,12 @@ async function fillRadio(page, name, value){
       check('B2 fp_noticed=0（没注意到环）', rec && rec.fp_noticed===0, 'fp_noticed='+(rec&&rec.fp_noticed));
       check('B2 prototype_ver=v0.9.43', rec && rec.prototype_ver==='v0.9.43', 'ver='+(rec&&rec.prototype_ver));
 
-      // ---- 7. 下一位复位 radio ----
+      // ---- 7. 下一位复位 radio + 屏幕切换 ----
       await page.click('#btnNext');
       const anyChecked = await page.evaluate(()=>Array.from(document.querySelectorAll('input[type=radio]:checked')).length);
       check('下一位被试所有 radio 已复位', anyChecked===0, 'checked='+anyChecked);
+      const backToConsent = await page.evaluate(()=>!document.getElementById('scrConsent').classList.contains('hidden'));
+      check('下一位返回知情同意页（reset 无 TypeError）', backToConsent, 'consentVisible='+backToConsent);
       await page.close();
     }
 

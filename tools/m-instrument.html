@@ -343,7 +343,7 @@ $('#btnNext').addEventListener('click', ()=>{
   // （尤其 f1–f3 / fp_noticed 直接依赖「本次实际看到」，残留会把 B2 的低分抬成虚假高分组）。
   $$('input[type=radio]').forEach(r=>{ r.checked=false; });
   $$('label.on').forEach(l=>l.classList.remove('on'));
-  ['scrDone','scrSurvey','scrAssign'].forEach(s=>$(s).classList.add('hidden'));
+  ['scrDone','scrSurvey','scrAssign'].forEach(s=>$('#'+s).classList.add('hidden'));
   $('#scrConsent').classList.remove('hidden');
   $('#consentChk').checked=false; $('#btnStart').disabled=true;
   $('#allBox').classList.add('hidden');

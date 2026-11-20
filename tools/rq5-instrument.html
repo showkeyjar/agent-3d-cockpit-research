@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-3d-cockpit · RQ5 跨轮次进展真人采集工具</title>
+<style>
+  :root{
+    --bg:#0f1419; --card:#1a2029; --line:#2a3340; --txt:#e6edf3; --mut:#8b98a5;
+    --acc:#5fe0ff; --ok:#79e6b0; --warn:#ffd27d; --bad:#ff8c8c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--txt);padding:24px}
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:15px;margin:22px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .hidden{display:none!important}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#222b36;color:var(--txt);
+         border-radius:8px;padding:9px 16px;margin:6px 6px 0 0}
+  button.primary{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
+  button.ghost{background:transparent}
+  label.chk{display:flex;gap:10px;align-items:flex-start;margin:10px 0}
+  textarea,input[type=text]{width:100%;background:#0d1218;border:1px solid var(--line);color:var(--txt);
+         border-radius:8px;padding:9px 11px;font:inherit;resize:vertical}
+  .q{margin:16px 0}
+  .q .lab{font-weight:600;margin-bottom:6px}
+  .q .hint{color:var(--mut);font-size:12px;margin-bottom:6px}
+  .scale{display:flex;gap:6px;flex-wrap:wrap}
+  .scale label{flex:1;min-width:64px;text-align:center;border:1px solid var(--line);border-radius:8px;
+       padding:8px 4px;cursor:pointer;background:#0d1218;font-size:12px}
+  .scale label input{display:none}
+  .scale label.on{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
+  .scale .ends{width:100%;display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:4px}
+  .yn{display:flex;gap:8px}
+  .yn label{border:1px solid var(--line);border-radius:8px;padding:6px 18px;cursor:pointer;background:#0d1218}
+  .yn label.on{background:var(--acc);color:#06222b;border-color:var(--acc);font-weight:600}
+  .yn label input{display:none}
+  .url{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0d1218;border:1px solid var(--line);
+       border-radius:8px;padding:10px 12px;word-break:break-all;color:var(--acc)}
+  .script{background:#0d1218;border:1px dashed var(--line);border-radius:8px;padding:12px 14px;
+       white-space:pre-wrap;margin-top:8px;font-size:13px}
+  .round{border-left:3px solid var(--line);padding:8px 0 8px 14px;margin:12px 0}
+  .round.anchor{border-left-color:var(--warn)}
+  .round.recover{border-left-color:var(--ok)}
+  .round .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-right:8px}
+  .tag.a{background:rgba(255,210,125,.15);color:var(--warn)}
+  .tag.b{background:rgba(95,224,255,.15);color:var(--acc)}
+  .tag.c{background:rgba(121,230,176,.15);color:var(--ok)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:#0d1218;color:var(--mut);font-weight:600}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.k{background:rgba(95,224,255,.15);color:var(--acc)}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222b36;border:1px solid var(--line);
+         padding:10px 18px;border-radius:8px;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  code{background:#0d1218;padding:1px 5px;border-radius:4px;color:var(--acc)}
+  .notice{background:rgba(255,210,125,.08);border:1px solid rgba(255,210,125,.35);border-radius:8px;
+       padding:10px 12px;font-size:12px;color:var(--warn);margin:12px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ 屏 0：知情同意 ============ -->
+  <section id="scrConsent">
+    <h1>RQ5 · 跨轮次进展真人采集</h1>
+    <p class="sub">研究 agent-3d-cockpit 原型：连续多轮任务中，用户是否感到"前面的工作被记住并累积"，还是"每轮像重开"。<b>本工具只采集真人作答</b>，运行时的三层不同步是已测事实，但不能代替你的主观感受。</p>
+    <div class="card">
+      <label class="chk"><input type="checkbox" id="consentChk">
+        <span>我已了解：① 数据仅保存在本机浏览器、可随时退出；② 本实验测量我的主观进展感，无对错；③ 任务连续 ≥7 轮、约 10–15 分钟；④ 我可以在任何一轮口头说明"我觉得它没记住我前面说的"。</span></label>
+      <button class="primary" id="btnStart" disabled>开始</button>
+    </div>
+  </section>
+
+  <!-- ============ 屏 1：任务脚本（埋点/回收协议）============ -->
+  <section id="scrTask" class="hidden">
+    <h2>任务脚本（连续 ≥7 轮，实验员逐轮引导）</h2>
+    <p class="sub">被试在原型 <code id="protoUrl">http://127.0.0.1:8770/</code> 中依次完成。前段"埋锚点"，中段推进，跨过 <code>tail=6</code> 语义边界后"回收"。<b>关键：回收轮不要主动提醒被试早期锚点</b>，观察其是否自发记得。</p>
+    <div class="notice">诚实前提：第 1–3 轮的结论在进 LLM 语义摘要时已被 <code>tail=6</code> 丢弃（运行时可复算事实，见 Q-d <code>digest_kept_seqs</code>），但账本与 3D 轨迹里仍在。本协议检验的是——在这种"账本在、语义衰减"的条件下，用户是否<b>仍感到</b>进展累积。结果无论正负都有价值；<b>采集工具不预设结论</b>。</div>
+    <div class="card">
+      <div class="round anchor"><span class="tag a">R1 埋点</span>请它起草"国内电力交易市场格局"简报，并给它一个<b>专属代号「青鸾计划」</b>，后续都这么称呼。→ <b>锚点 A = 代号「青鸾计划」</b></div>
+      <div class="round"><span class="tag b">R2</span>让它"对比主要交易模式"，看它是否接着 R1 的上下文。</div>
+      <div class="round anchor"><span class="tag a">R3 埋点</span>给出一组专属数据（如省 12 个月发电量/负荷/电价），让它找出异常并记住判断依据。→ <b>锚点 B = 具体异常与依据</b></div>
+      <div class="round"><span class="tag b">R4–R6</span>每轮追加一个新约束（如"再补充储能影响""换成季度口径""加一段风险提示"），逐轮推进；不重复前面已说的。</div>
+      <div class="round"><span class="tag b">R7 跨界</span>提出一个需要用到 R1/R3 结论的新问题。此处第 1 轮已掉出语义视野（tail=6）。<b>不提醒代号与数据</b>。</div>
+      <div class="round recover"><span class="tag c">R8 回收</span>要求"把简报按之前定的代号整理成最终版"——观察它是否还记得「青鸾计划」，即先前工作是否被记住/用上。</div>
+      <div class="round recover"><span class="tag c">R9 回收</span>要求"引用前面的异常分析给个结论"——观察锚点 B 是否被接上，用户是否需要重复输入。</div>
+    </div>
+    <p class="sub">任务结束后由实验员记录客观行为 + 被试填 RQ5 专项量表。<b>回收轮的"是否重复输入/是否接上"由实验员按实际观察记录，不得凭量表倒推。</b></p>
+    <button class="primary" id="btnToObs">进入行为记录 →</button>
+  </section>
+
+  <!-- ============ 屏 2：客观行为记录（实验员填）============= -->
+  <section id="scrObs" class="hidden">
+    <h2>客观行为证据（实验员按观察填写）</h2>
+    <p class="sub">这些是行为事实，与后面的主观量表分开采；<b>不得用量表得分倒填此处</b>。</p>
+    <div class="card">
+      <div class="q"><div class="lab">B1 · 回收轮是否<b>主动提及/依赖</b>早期锚点（代号「青鸾计划」/ 异常数据），而非重新输入？</div>
+        <div class="yn" data-yn="rq_anchor_recalled"><label><input type="radio" name="rq_anchor_recalled" value="1">主动记得/直接用</label><label><input type="radio" name="rq_anchor_recalled" value="0">需重新输入/没提</label></div></div>
+      <div class="q"><div class="lab">B2 · 被试是否<b>主动打开「会话脉络」视图</b>回看前面轮次？（未提示情况下）</div>
+        <div class="yn" data-yn="rq_thread_used"><label><input type="radio" name="rq_thread_used" value="1">主动打开回看</label><label><input type="radio" name="rq_thread_used" value="0">没有</label></div></div>
+      <div class="q"><div class="lab">B3 · 完成轮数（实际跑了几轮真实执行，需 ≥7）</div>
+        <input type="text" id="rounds_done" placeholder="例如：9"></div>
+      <div class="q"><div class="lab">B4 · 出声思维：回收轮被试的原始反应（逐字或摘要）</div>
+        <textarea id="rq_think_aloud" rows="3" placeholder='如："咦它怎么还写青鸾计划…哦我记得我一开始起的" / "我得再说一遍那个代号"'></textarea></div>
+    </div>
+    <button class="primary" id="btnToSurvey">进入主观量表 →</button>
+  </section>
+
+  <!-- ============ 屏 3：RQ5 专项主观量表 ============ -->
+  <section id="scrSurvey" class="hidden">
+    <h2>RQ5 跨轮感知量表（被试填写）</h2>
+    <p class="sub">1=完全不同意 … 7=完全同意。请按真实感受作答；<b>本量表不参与任何运行时的完成度/门控判定</b>，仅供研究统计。</p>
+    <div class="card"><div id="rqScaleBox"></div></div>
+    <div class="card">
+      <div class="q"><div class="lab">I1 · 访谈（关键）："你说有/没有进展时，是指前面几轮的工作<b>被记住并接上了</b>，还是每轮都像<b>从头开始</b>？"</div>
+        <textarea id="rq_interview" rows="3"></textarea></div>
+      <div class="q"><div class="lab">备注（其它观察）</div><textarea id="rq_notes" rows="2"></textarea></div>
+    </div>
+    <button class="primary" id="btnSubmit">提交本条记录 →</button>
+  </section>
+
+  <!-- ============ 屏 4：完成 / 导出 ============ -->
+  <section id="scrDone" class="hidden">
+    <h2>已保存（本机）</h2>
+    <p class="sub">数据暂存在本机浏览器（localStorage，key=<code>rq5-records</code>）。请归集后用 CSV 进统计软件；<b>真人数据进来前，H4.1/RQ5 仍为"待验"</b>。</p>
+    <div class="card" id="rqSummary"></div>
+    <div class="row">
+      <button class="primary" id="btnNext">下一位被试</button>
+      <button id="btnExportOne">导出本条 JSON</button>
+      <button id="btnExportAll">导出全部 CSV</button>
+      <button class="ghost" id="btnViewAll">查看已采集（<span id="cnt">0</span>）</button>
+    </div>
+    <div id="allBox" class="card hidden"></div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* ---------- RQ5 专项量表：测「跨轮累积是否被感知」，与 s1–s7 单轮量表正交 ---------- */
+/*  honesty：r 系列只问主观「感到」，不问"系统是否真记住"——后者是运行时事实，由账本衡量。 */
+const R_SCALE = [
+  {k:'r1',c:'累积感',t:'连续做下来，我感到前面几轮的工作被记住并在积累'},
+  {k:'r2',c:'非重开',t:'我不觉得每一轮都像从头开始'},
+  {k:'r3',c:'被接上',t:'后面的任务接上了我前面给出的信息/代号/数据'},
+  {k:'r4',c:'可追溯',t:'我能看清前面的工作是怎么一步步走到现在的（如通过会话脉络）'},
+  {k:'r5',c:'总体',t:'整体上，这轮连续任务让我产生了"进展在累积"的感觉'}
+];
+const PROTO_VER = 'rq5-v1';        // RQ5 专用工具版本（与单轮 m-instrument 的 v0.9.43 区分）
+const LS_KEY = 'rq5-records';
+const PROTO_URL = 'http://127.0.0.1:8770/';
+
+let S = { pid:null };
+
+/* ---------- 工具 ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),1800); }
+function uid(){ return 'RQ'+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36); }
+function getRecs(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }catch(e){ return []; } }
+function setRecs(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); }
+
+/* ---------- 流程 ---------- */
+$('#consentChk').addEventListener('change', e => $('#btnStart').disabled = !e.target.checked);
+$('#btnStart').addEventListener('click', ()=>{
+  S.pid = uid();
+  $('#protoUrl').textContent = PROTO_URL;
+  $('#scrConsent').classList.add('hidden');
+  $('#scrTask').classList.remove('hidden');
+});
+$('#btnToObs').addEventListener('click', ()=>{
+  $('#scrTask').classList.add('hidden'); $('#scrObs').classList.remove('hidden');
+});
+$('#btnToSurvey').addEventListener('click', ()=>{
+  $('#scrObs').classList.add('hidden'); $('#scrSurvey').classList.remove('hidden');
+  if(!$('#rqScaleBox').children.length) renderRScale();
+});
+
+function renderRScale(){
+  const box = $('#rqScaleBox');
+  R_SCALE.forEach(it=>{
+    const q = document.createElement('div'); q.className='q';
+    q.innerHTML = `<div class="lab">${it.k} · <span style="color:var(--acc)">${it.c}</span>　${it.t}</div>
+      <div class="scale" data-scale="${it.k}">`+
+      [1,2,3,4,5,6,7].map(n=>`<label><input type="radio" name="${it.k}" value="${n}">${n}</label>`).join('')+
+      `</div><div class="scale ends"><span>完全不同意</span><span>完全同意</span></div>`;
+    box.appendChild(q);
+  });
+  $$('#rqScaleBox .scale label').forEach(l=>l.addEventListener('click',()=>{
+    const g=l.parentElement; $$('label',g).forEach(x=>x.classList.remove('on'));
+    l.classList.add('on'); l.querySelector('input').checked=true;
+  }));
+}
+
+$('#btnSubmit').addEventListener('click', ()=>{
+  const rec = { pid:S.pid, prototype_ver:PROTO_VER, proto_url:PROTO_URL, ts:new Date().toISOString() };
+  let ok=true;
+  R_SCALE.forEach(it=>{ const v=$(`input[name=${it.k}]:checked`); if(!v){ok=false;} else rec[it.k]=+v.value; });
+  // 客观行为（实验员填）：是/否必答；轮数与文本可空但记录。
+  ['rq_anchor_recalled','rq_thread_used'].forEach(k=>{
+    const v=$(`input[name=${k}]:checked`); if(!v){ok=false;} else rec[k]=+v.value; });
+  const rd = parseInt($('#rounds_done').value.trim(),10);
+  rec.rounds_done = isNaN(rd) ? null : rd;
+  rec.rq_think_aloud = $('#rq_think_aloud').value.trim();
+  rec.rq_interview = $('#rq_interview').value.trim();
+  rec.rq_notes = $('#rq_notes').value.trim();
+  if(!ok){ toast('请完成 r1–r5 与 B1/B2 两项行为记录'); return; }
+  const all=getRecs(); all.push(rec); setRecs(all);
+  paintSummary(rec);
+  $('#scrSurvey').classList.add('hidden'); $('#scrDone').classList.remove('hidden');
+  $('#cnt').textContent = all.length;
+  toast('已保存（本机）');
+});
+
+/* ---------- 汇总：只呈现描述统计，不下"已验证"结论（H4.1 仍待验）---------- */
+function paintSummary(rec){
+  const rMean = (['r1','r2','r3','r4','r5'].reduce((a,k)=>a+rec[k],0)/5).toFixed(2);
+  const box = $('#rqSummary');
+  box.innerHTML = `<p><span class="pill k">RQ5 观测</span> r 均值=<b>${rMean}</b> · 锚点主动记得=<b>${rec.rq_anchor_recalled?'是':'否'}</b> · 主动回看脉络=<b>${rec.rq_thread_used?'是':'否'}</b> · 完成轮数=<b>${rec.rounds_done ?? '未填'}</b></p>
+    <p class="sub">这是单条观测。RQ5/H4.1 的结论须在归集多名被试、按 RESEARCH-PLAN §3.5 统计后方可判定；<b>本工具不宣称假设成立</b>。需 ≥7 轮跨 tail=6 边界方为有效样本。</p>`;
+}
+
+/* ---------- 导出 ---------- */
+$('#btnNext').addEventListener('click', ()=>{
+  S = { pid:uid() };
+  $$('input[type=radio]').forEach(r=>{ r.checked=false; });
+  $$('label.on').forEach(l=>l.classList.remove('on'));
+  ['rounds_done','rq_think_aloud','rq_interview','rq_notes'].forEach(id=>{ const el=$('#'+id); if(el) el.value=''; });
+  ['scrDone','scrSurvey','scrObs','scrTask'].forEach(s=>$('#'+s).classList.add('hidden'));
+  $('#scrConsent').classList.remove('hidden');
+  $('#consentChk').checked=false; $('#btnStart').disabled=true;
+  $('#allBox').classList.add('hidden');
+});
+$('#btnExportOne').addEventListener('click', ()=>{
+  const recs=getRecs(); const last=recs[recs.length-1]; if(!last) return;
+  download('rq5-record-'+last.pid+'.json', JSON.stringify(last,null,2));
+});
+$('#btnExportAll').addEventListener('click', ()=>{
+  const recs=getRecs(); if(!recs.length){ toast('暂无数据'); return; }
+  download('rq5-records.csv', toCSV(recs));
+});
+$('#btnViewAll').addEventListener('click', ()=>{
+  const recs=getRecs(); const b=$('#allBox'); b.classList.toggle('hidden');
+  if(b.classList.contains('hidden')) return;
+  let h='<table><tr><th>pid</th><th>r1</th><th>r2</th><th>r3</th><th>r4</th><th>r5</th><th>锚点记得</th><th>回看脉络</th><th>轮数</th><th>ver</th></tr>';
+  recs.forEach(r=> h+=`<tr><td>${r.pid}</td><td>${r.r1}</td><td>${r.r2}</td><td>${r.r3}</td><td>${r.r4}</td><td>${r.r5}</td><td>${r.rq_anchor_recalled}</td><td>${r.rq_thread_used}</td><td>${r.rounds_done ?? '—'}</td><td>${r.prototype_ver}</td></tr>`);
+  h+='</table>'; b.innerHTML=h;
+});
+
+function toCSV(recs){
+  const cols=['pid','prototype_ver','proto_url',
+    'r1','r2','r3','r4','r5',
+    'rq_anchor_recalled','rq_thread_used','rounds_done',
+    'rq_think_aloud','rq_interview','rq_notes','ts'];
+  const esc=v=>{ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  let out='\uFEFF'+cols.join(',')+'\n';
+  recs.forEach(r=> out+=cols.map(c=>esc(r[c])).join(',')+'\n');
+  return out;
+}
+function download(name, text){
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+/* ---------- 测试钩子（只读/注入，不参与生产判定） ---------- */
+window.__rq5 = {
+  get records(){ return getRecs().map(r=>({...r})); },
+  clear(){ localStorage.removeItem(LS_KEY); },
+  toCSV: (recs)=>toCSV(recs),
+  get rScaleKeys(){ return R_SCALE.map(x=>x.k); },
+  get protoVer(){ return PROTO_VER; }
+};
+</script>
+</body>
+</html>
