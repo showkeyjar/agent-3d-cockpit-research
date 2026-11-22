@@ -109,6 +109,7 @@ Documents clés : [PROBLEM](docs/PROBLEM.md) · [EVIDENCE](docs/EVIDENCE.md) · 
 - [ ] **M2 : études contrôlées avec participants** ← priorité actuelle
 - [ ] M0 : validation par réflexion à voix haute
 - [ ] M3 : remplir la liste d'acceptation
+- [ ] Correctifs des problèmes de terrain ([FIELD-ISSUES](docs/FIELD-ISSUES.md) : liaison conduite↔exécution, étiquetage des troncatures, affinage par modèle dans la boucle d'exploration)
 - [ ] Segments de chaîne d'outils réels (Route A)
 
 ## 🤝 Contribuer

@@ -171,6 +171,7 @@ Full details: [prototype/README.md](prototype/README.md).
 | [M-EXPERIMENT.md](docs/M-EXPERIMENT.md) | Human-study protocol: six groups, three task types, scales, ethics |
 | [M3-ACCEPTANCE.md](docs/M3-ACCEPTANCE.md) | Acceptance checklist: P0→P4 + four evidence tiers + dev self-check template |
 | [CROSS-TURN-PROGRESS.md](docs/CROSS-TURN-PROGRESS.md) | Cross-turn progress: reproducible three-layer desync facts + RQ1–RQ5 |
+| [FIELD-ISSUES.md](docs/FIELD-ISSUES.md) | Field-issue list (2026-11-22, baseline v0.9.49.2): 9 issues found in end-to-end live runs + code locations + fix proposals |
 
 Multilingual summaries: [中文](docs/i18n/RESEARCH-SUMMARY.zh.md) · [日本語](docs/i18n/RESEARCH-SUMMARY.ja.md) · [Deutsch](docs/i18n/RESEARCH-SUMMARY.de.md) · [Français](docs/i18n/RESEARCH-SUMMARY.fr.md) · [Español](docs/i18n/RESEARCH-SUMMARY.es.md) · [Glossary](docs/i18n/GLOSSARY.md)
 
@@ -202,6 +203,7 @@ Regression red lines: execution-chain semantics, 3D geometric invariants (camera
 - [ ] **M2 human controlled studies** (A/B presentation, B/C execution reality, B/B2 ring single-variable) ← current focus
 - [ ] M0 think-aloud validation (what users actually mean by "no progress")
 - [ ] M3 acceptance checklist filled + hypothesis status write-back
+- [ ] Field-issue fixes ([FIELD-ISSUES](docs/FIELD-ISSUES.md): drive↔execution binding, truncation labeling, model refinement in the exploration loop)
 - [ ] Real tool-chain segments (Route A: retrieval/code-exec/verification with per-step evidence)
 - [ ] Domain calibration for the real-embedding semantic tier
 

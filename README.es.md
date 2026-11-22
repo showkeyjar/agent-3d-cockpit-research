@@ -109,6 +109,7 @@ Documentos clave: [PROBLEM](docs/PROBLEM.md) · [EVIDENCE](docs/EVIDENCE.md) · 
 - [ ] **M2: estudios controlados con participantes** ← foco actual
 - [ ] M0: validación mediante pensamiento en voz alta
 - [ ] M3: completar la lista de aceptación
+- [ ] Correcciones de problemas de campo ([FIELD-ISSUES](docs/FIELD-ISSUES.md): vínculo conducción↔ejecución, etiquetado de truncamientos, refinamiento por modelo en el bucle de exploración)
 - [ ] Segmentos de cadena de herramientas reales (Ruta A)
 
 ## 🤝 Contribuir

@@ -176,6 +176,7 @@ python tools/open_cockpit.py   # 探活→自动拉起后端→打开浏览器
 | [M-EXPERIMENT.md](docs/M-EXPERIMENT.md) | 真人实验协议：A/B/B0/B1/B2/C 组、三类任务、量表、伦理 |
 | [M3-ACCEPTANCE.md](docs/M3-ACCEPTANCE.md) | 实质进展验收清单：P0→P4 + 四级证据 + 开发自检模板 |
 | [CROSS-TURN-PROGRESS.md](docs/CROSS-TURN-PROGRESS.md) | 跨轮次进展：三层不同步的可复算事实 + RQ1–RQ5 |
+| [FIELD-ISSUES.md](docs/FIELD-ISSUES.md) | 实测问题清单（2026-11-22，v0.9.49.2 基线）：端到端实跑发现的 9 项问题 + 代码定位 + 修复建议 |
 | [VISION-DECOMPOSITION.md](docs/VISION-DECOMPOSITION.md) | 三愿景功能拆分与优先级路线 |
 
 多语言研究概要（附[术语对照表](docs/i18n/GLOSSARY.md)）：[English](docs/i18n/RESEARCH-SUMMARY.en.md) · [日本語](docs/i18n/RESEARCH-SUMMARY.ja.md) · [Deutsch](docs/i18n/RESEARCH-SUMMARY.de.md) · [Français](docs/i18n/RESEARCH-SUMMARY.fr.md) · [Español](docs/i18n/RESEARCH-SUMMARY.es.md)
@@ -206,6 +207,7 @@ node verify_opaque.js      # 实验操纵完整性
 - [ ] **M2 真人对照实验**（A/B 呈现效应、B/C 执行真实性、B/B2 指纹环单变量）← 当前主线
 - [ ] M0 出声思维验证（用户「没有实质进展」的内心指向）
 - [ ] M3 验收清单填实 + 假设状态回写
+- [ ] 实测问题修复（[FIELD-ISSUES](docs/FIELD-ISSUES.md)：行驶↔执行绑定、截断标注、探索环模型精修）
 - [ ] 真实工具链路段（路线 A：检索/代码执行/校验接真实后端，每步可核对）
 - [ ] 真实 embedding 语义档的领域校准
 

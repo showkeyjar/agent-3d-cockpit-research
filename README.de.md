@@ -109,6 +109,7 @@ Kerndokumente: [PROBLEM](docs/PROBLEM.md) · [EVIDENCE](docs/EVIDENCE.md) · [AU
 - [ ] **M2 kontrollierte Studien mit Teilnehmenden** ← aktueller Fokus
 - [ ] M0 Validierung durch lautes Denken
 - [ ] M3 Abnahme-Checkliste ausfüllen
+- [ ] Feldproblem-Fixes ([FIELD-ISSUES](docs/FIELD-ISSUES.md): Fahrt↔Ausführung-Kopplung, Kürzungskennzeichnung, Modellverfeinerung im Explorationsloop)
 - [ ] Echte Tool-Chain-Segmente (Route A)
 
 ## 🤝 Mitwirken
