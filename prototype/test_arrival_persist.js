@@ -14,7 +14,7 @@ const ARR=(c)=>c.signs.filter(s=>s.userData && s.userData.branchId===-2).length;
   const page=await browser.newPage({viewport:{width:1280,height:800}});
   const errors=[];
   page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('http://127.0.0.1:8770/',{waitUntil:'load'});
+  await page.goto('http://127.0.0.1:8770/?test=1',{waitUntil:'load'});
   await page.waitForFunction(()=>window.__cockpit&&window.__cockpit.setupTestArrival,
                              null,{timeout:20000});
 

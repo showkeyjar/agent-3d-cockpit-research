@@ -15,7 +15,7 @@ async function main() {
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = [];
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
-  await page.goto('http://localhost:8770/', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:8770/?test=1', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 
   // ── A：单次行驶隐藏时序（对照上轮夹具路径）

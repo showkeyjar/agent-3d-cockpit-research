@@ -13,7 +13,7 @@ function ok(name, cond, extra){ if (cond){ pass++; console.log('  ✓ ' + name);
   const page = await browser.newPage();
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
+  await page.goto('http://127.0.0.1:8770/?test=1', { waitUntil: 'load' });
   await page.waitForTimeout(1200);
 
   console.log('\n[A] 初始态');
@@ -55,7 +55,7 @@ function ok(name, cond, extra){ if (cond){ pass++; console.log('  ✓ ' + name);
   ok('决策链节点累积 = 2', d.dcNodes === 2, 'nodes=' + d.dcNodes);
 
   console.log('\n[E] 不变量：opaque 模式隐藏呈现层（含 HUD / 决策链）');
-  await page.goto('http://127.0.0.1:8770/?mode=opaque', { waitUntil: 'load' });
+  await page.goto('http://127.0.0.1:8770/?mode=opaque&test=1', { waitUntil: 'load' });
   await page.waitForTimeout(800);
   const op = await page.evaluate(() => {
     const g = s => { const el = document.querySelector(s); return el ? getComputedStyle(el).display : 'missing'; };

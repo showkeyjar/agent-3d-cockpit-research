@@ -860,19 +860,30 @@ async def run_execute(conn: WSConnection, data: dict, cancel_event=None, submitt
                     "internal_state": result.get("internal_state") or expert_state.unavailable("interrupted"),
                 })
             else:
+                # FI-02：结果卡全文上限从 400 提到 6000 字符（与 refine 同口径）——
+                # 旧值会把 compose 长成果二次截断且不告知；若仍超限，如实标 truncated。
+                _out_full = result.get("output") or ""
+                _out_capped = _out_full[:6000]
+                _cap_trunc = len(_out_full) > 6000
+                _trunc = bool(result.get("truncated")) or _cap_trunc
+                _note = result.get("note", "")
+                if _cap_trunc and "截断" not in _note:
+                    _note = (_note + "；" if _note else "") + "成果超长，结果卡仅保留前 6000 字符"
                 done.update({
-                    "output": (result.get("output") or "")[:400],
+                    "output": _out_capped,
                     "tasks": result.get("tasks", []),
                     "chain": result.get("chain", []),
                     "source": result.get("source", "local"),
                     "reason": result.get("reason", ""),
                     "tokens": result.get("tokens", 0),
-                    "note": result.get("note", ""),
+                    "note": _note,
                     "ok": True,
                     "clarify": result.get("clarify", False),
                     "question": result.get("question", ""),
                     "task_kind": result.get("task_kind", ""),
-                    "completion": result.get("completion", "partial"),
+                    "completion": ("partial" if _trunc and result.get("source") == "llm"
+                                   else result.get("completion", "partial")),
+                    "truncated": _trunc,
                     # v0.9.41：内部状态指纹由 executor 紧贴真实 LLM 调用采集，
                     # 这里只透传；采集关闭/不可达/降级轮 executor 已标 unavailable。
                     "internal_state": result.get("internal_state") or expert_state.unavailable("not_collected"),

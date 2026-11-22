@@ -11,7 +11,7 @@ async function main() {
   const errors = [];
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 
-  await page.goto('http://localhost:8770/', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:8770/?test=1', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
   // 确定性搭景：相机归位 + 立到达牌 + 3 块未来路牌

@@ -11,7 +11,7 @@ async function main() {
   const errors = [];
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 
-  await page.goto('http://localhost:8770/', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:8770/?test=1', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
   await page.evaluate(() => { window.__cockpit.resetCamera(); window.__cockpit.setupTestArrival([8, 0, 8]); });

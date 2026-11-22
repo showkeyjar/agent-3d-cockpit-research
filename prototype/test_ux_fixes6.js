@@ -7,7 +7,7 @@ const { resolveChromePath } = require('./chrome_helper');
 // 纯前端（setupTestArrival），不依赖 35B，秒级完成。
 const { chromium } = require('playwright-core');
 const EXE = resolveChromePath();
-const URL = 'http://127.0.0.1:8770/';
+const URL = 'http://127.0.0.1:8770/?test=1';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {

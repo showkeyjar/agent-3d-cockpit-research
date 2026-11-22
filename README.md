@@ -6,7 +6,7 @@
 
 *Turn agent collaboration from reading replies into driving a journey.*
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.3-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.49.4-5ee0ff)](prototype/CHANGELOG.md)
 [![Research](https://img.shields.io/badge/research-P1–P4%20criteria-ff5fe0)](docs/PROBLEM.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)](prototype/requirements.txt)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
@@ -149,7 +149,7 @@ python tools/open_cockpit.py   # 探活→自动拉起后端→打开浏览器
 ## 📁 仓库结构
 
 ```
-├── prototype/            # 可运行实证原型（v0.9.49.3）
+├── prototype/            # 可运行实证原型（v0.9.49.4）
 │   ├── index.html        #   3D 驾驶舱前端（Three.js，零构建）
 │   ├── backend/          #   FastAPI + WebSocket 后端（执行链/账本/记忆）
 │   ├── forecaster/       #   前瞻推演器（采样/分桶/分歧度/3D 投影）

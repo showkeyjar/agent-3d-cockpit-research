@@ -7,7 +7,33 @@
 
 ---
 
-## v0.9.49.3 · 2026-11-22 · 实测问题修复批次一：前端相对路径化（FI-05）+ 健康探针 OpenAI 兼容（FI-06）
+## v0.9.49.4 · 2026-11-22 · 实测修复批次二：截断如实标注（FI-02）+ 伪造钩子门控（FI-07）
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md)。执行链语义不变（仍单步真实流式），
+相机公式 / 路牌几何 / 中断态 / 实验操纵零触碰。
+
+- **FI-02 上限截断不再无声交付半截产物**：
+  - `_llm_stream` 捕获 SSE `finish_reason=length` → `last_truncated`；
+  - 执行上限按任务类型分档 `EXEC_MAX_TOKENS`：compose 1024 / analysis·general 320（旧值一律 220，起草常在句中掐停）；
+  - `judge_completion` 新增 `truncated` 判据：截断 = 有真实产出但不完整 → **partial**，绝不判达成；
+  - 任务条截断轮不打 ✓、注明「输出达上限被截断，未完整」；note 给「展开完整成果」补齐指引（复用既有 partial 行动出口）；
+  - `server.py` 结果卡全文上限 400→6000 字符（与 refine 同口径）；仍超限则如实标 truncated + note 说明——旧 400 上限会把 compose 长成果**二次截断且不告知**；
+  - `truncated` 全链透传：execute_done → 结果卡达成度文案 → 账本 exec.truncated → CSV 导出 `exec_truncated` 列。
+- **FI-07 伪造到达钩子加门**：`simulateArrival` / `setupTestArrival` 仅 `?test=1` 页面可用，
+  正常页调用直接拒绝（返回 false/0，账本零污染）；测试搭景轮**强制 `decorative=true`**
+  （沿用 v0.9.32 C 组正交标记语义：呈现一致、账本/导出/collectRealOutputs 单列，绝不混入 P1 真实结论）。
+  只读诊断钩子不受影响。19 个使用搭景钩子的回归脚本 URL 已补 `?test=1`。
+- **新回归**：`backend/test_truncation.py` 16/16（fake-SSE：length/stop 两态 × 判据/流捕获/execute 全链/分档上限）；
+  `verify_fi02_fi07.js` 13/13（真实后端+小模型端到端：compose 513 字完整交付 achieved；
+  正常页双钩子拒绝且账本零污染；?test=1 可用且 decorative=true；0 JS 错误）。
+- **既有回归**：后端 cancel 16/16、ws_lifecycle 14/14、expert_state 25/25、forecaster 29/29；
+  前端 honesty 5/5、opaque 22/22、keyboard 22/22、compare 27/27、cancel 33/33、timeline 42/42、
+  practical 16/16、scenery 21/21、arrival_persist 13/13、camera_diag、f32_link、future_travel、
+  driving_view、immersive 全绿。
+
+---
+
+## v0.9.49.3 · 2026-11-22 · 实测修复批次一：前端相对路径化（FI-05）+ 健康探针 OpenAI 兼容（FI-06）
 
 来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) 实测问题清单（博文制作过程端到端实跑发现）。
 本批为零红线触碰项：执行链语义、3D 几何、中断态、实验操纵全部不动。

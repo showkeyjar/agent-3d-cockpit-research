@@ -57,6 +57,13 @@ uvicorn server:app --port 8770
 # 浏览器打开 http://127.0.0.1:8770/
 ```
 
+## 测试搭景钩子（FI-07，v0.9.49.4 起）
+
+`setupTestArrival` / `simulateArrival` 等**伪造到达类钩子仅在 `?test=1` 页面可用**；
+正常页面调用直接拒绝（返回 false/0），且测试搭景轮强制 `decorative=true` 正交标记
+（账本/导出单列，不混入 P1 真实结论）。只读诊断钩子不受影响。
+回归脚本已统一带 `?test=1`；手动调试搭景时请自行加该参数。
+
 ## 实验操纵（M1/M2）
 
 `?mode=opaque` 挂在 URL 上即启用 A 组「执行不透明」：仅隐藏 P2/P3/P4 呈现层，

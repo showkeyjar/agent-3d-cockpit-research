@@ -9,6 +9,8 @@ __pycache__/
 # ── 运行时产物与密钥 ──
 *.log
 *.db
+*.db-shm
+*.db-wal
 server.config.json
 llm-config.json
 
