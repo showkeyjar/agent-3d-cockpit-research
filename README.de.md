@@ -4,7 +4,7 @@
 
 **Zusammenarbeit mit KI-Agenten: vom Lesen von Antworten zum Fahren einer Reise.**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.5-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.50-5ee0ff)](prototype/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · **Deutsch** · [Français](README.fr.md) · [Español](README.es.md)
@@ -109,7 +109,8 @@ Kerndokumente: [PROBLEM](docs/PROBLEM.md) · [EVIDENCE](docs/EVIDENCE.md) · [AU
 - [ ] **M2 kontrollierte Studien mit Teilnehmenden** ← aktueller Fokus
 - [ ] M0 Validierung durch lautes Denken
 - [ ] M3 Abnahme-Checkliste ausfüllen
-- [ ] Feldproblem-Fixes ([FIELD-ISSUES](docs/FIELD-ISSUES.md): Fahrt↔Ausführung-Kopplung, Kürzungskennzeichnung, Modellverfeinerung im Explorationsloop)
+- [x] Fahrt↔Ausführung-Ereigniskopplung (v0.9.50, FI-01: Token-Stream-Cruise, execute_done-Andocken, Stopp auf der Stelle bei Abbruch)
+- [ ] Feldproblem-Fixes ([FIELD-ISSUES](docs/FIELD-ISSUES.md): Modellverfeinerung im Explorationsloop FI-03, UI-i18n FI-08)
 - [ ] Echte Tool-Chain-Segmente (Route A)
 
 ## 🤝 Mitwirken

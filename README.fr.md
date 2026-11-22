@@ -4,7 +4,7 @@
 
 **Collaborer avec un agent IA : passer de la lecture de réponses à la conduite d'un voyage.**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.5-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.50-5ee0ff)](prototype/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · **Français** · [Español](README.es.md)
@@ -109,7 +109,8 @@ Documents clés : [PROBLEM](docs/PROBLEM.md) · [EVIDENCE](docs/EVIDENCE.md) · 
 - [ ] **M2 : études contrôlées avec participants** ← priorité actuelle
 - [ ] M0 : validation par réflexion à voix haute
 - [ ] M3 : remplir la liste d'acceptation
-- [ ] Correctifs des problèmes de terrain ([FIELD-ISSUES](docs/FIELD-ISSUES.md) : liaison conduite↔exécution, étiquetage des troncatures, affinage par modèle dans la boucle d'exploration)
+- [x] Liaison événementielle conduite↔exécution (v0.9.50, FI-01 : croisière pilotée par le flux de tokens, accostage sur execute_done, arrêt sur place en cas d'interruption)
+- [ ] Correctifs des problèmes de terrain ([FIELD-ISSUES](docs/FIELD-ISSUES.md) : affinage par modèle dans la boucle d'exploration FI-03, i18n de l'interface FI-08)
 - [ ] Segments de chaîne d'outils réels (Route A)
 
 ## 🤝 Contribuer

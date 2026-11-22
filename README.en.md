@@ -4,7 +4,7 @@
 
 **Turn agent collaboration from reading replies into driving a journey.**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.5-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.50-5ee0ff)](prototype/CHANGELOG.md)
 [![Research](https://img.shields.io/badge/research-P1–P4%20criteria-ff5fe0)](docs/PROBLEM.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)](prototype/requirements.txt)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
@@ -144,7 +144,7 @@ Full details: [prototype/README.md](prototype/README.md).
 ## 📁 Repository layout
 
 ```
-├── prototype/            # Runnable prototype (v0.9.49.5)
+├── prototype/            # Runnable prototype (v0.9.50)
 │   ├── index.html        #   3D cockpit frontend (Three.js, zero build)
 │   ├── backend/          #   FastAPI + WebSocket backend (execution/ledger/memory)
 │   ├── forecaster/       #   Speculative forecaster (sampling/bucketing/divergence/3D projection)
@@ -203,7 +203,8 @@ Regression red lines: execution-chain semantics, 3D geometric invariants (camera
 - [ ] **M2 human controlled studies** (A/B presentation, B/C execution reality, B/B2 ring single-variable) ← current focus
 - [ ] M0 think-aloud validation (what users actually mean by "no progress")
 - [ ] M3 acceptance checklist filled + hypothesis status write-back
-- [ ] Field-issue fixes ([FIELD-ISSUES](docs/FIELD-ISSUES.md): drive↔execution binding, truncation labeling, model refinement in the exploration loop)
+- [x] Drive↔execution event binding (v0.9.50, FI-01: token-stream cruise, execute_done docking, stop-in-place on interrupt)
+- [ ] Field-issue fixes ([FIELD-ISSUES](docs/FIELD-ISSUES.md): model refinement in the exploration loop FI-03, UI i18n FI-08)
 - [ ] Real tool-chain segments (Route A: retrieval/code-exec/verification with per-step evidence)
 - [ ] Domain calibration for the real-embedding semantic tier
 

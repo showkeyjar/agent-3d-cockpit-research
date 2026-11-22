@@ -156,7 +156,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         const distBounce = Math.abs(t1.camDist - t0.camDist);
         const posBounce = Math.hypot(t1.camPos[0] - t0.camPos[0], t1.camPos[2] - t0.camPos[2]);
 
-        // C. 找一块能被射线真实命中的到达牌，点它做 toggle
+        // C. 找一块能被射线真实命中、且未被底部输入栏（#intentRow/#inputBar）遮挡的到达牌点。
+        // FI-01 注：pickAt 只查 3D 射线，不知道 DOM 覆盖——扫描点若落在输入栏上，
+        // 真实点击会被 DOM 吃掉（基线同样存在此 flake，双向基线对照已确认）。
+        // 这里补 elementFromPoint 校验，与用户真实可点语义一致。
         const hit = await page.evaluate(() => {
           const signs = window.__cockpit.signs.filter(s => s.userData.branchId === -2);
           if (!signs.length) return null;
@@ -165,7 +168,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           for (let dy = 0; dy <= 60; dy += 10) {
             for (let dx = -60; dx <= 60; dx += 10) {
               const x = base.x + dx, y = base.y + dy;
-              if (window.__cockpit.pickAt(x, y) === -2) return { x, y };
+              if (window.__cockpit.pickAt(x, y) !== -2) continue;
+              const el = document.elementFromPoint(x, y);
+              if (el && el.id === 'scene') return { x, y };
             }
           }
           return null;

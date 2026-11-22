@@ -4,7 +4,7 @@
 
 **Colaborar con agentes de IA: pasar de leer respuestas a conducir un viaje.**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.5-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.50-5ee0ff)](prototype/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · **Español**
@@ -109,7 +109,8 @@ Documentos clave: [PROBLEM](docs/PROBLEM.md) · [EVIDENCE](docs/EVIDENCE.md) · 
 - [ ] **M2: estudios controlados con participantes** ← foco actual
 - [ ] M0: validación mediante pensamiento en voz alta
 - [ ] M3: completar la lista de aceptación
-- [ ] Correcciones de problemas de campo ([FIELD-ISSUES](docs/FIELD-ISSUES.md): vínculo conducción↔ejecución, etiquetado de truncamientos, refinamiento por modelo en el bucle de exploración)
+- [x] Vínculo de eventos conducción↔ejecución (v0.9.50, FI-01: crucero por flujo de tokens, atraque en execute_done, parada en el sitio al interrumpir)
+- [ ] Correcciones de problemas de campo ([FIELD-ISSUES](docs/FIELD-ISSUES.md): refinamiento por modelo en el bucle de exploración FI-03, i18n de la interfaz FI-08)
 - [ ] Segmentos de cadena de herramientas reales (Ruta A)
 
 ## 🤝 Contribuir

@@ -4,7 +4,7 @@
 
 **AIエージェントとの協働を「回答を読む」から「旅を運転する」へ。**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.5-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.50-5ee0ff)](prototype/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
 
 [简体中文](README.md) · [English](README.en.md) · **日本語** · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md)
@@ -109,7 +109,8 @@ python tools/open_cockpit.py
 - [ ] **M2 被験者による対照実験** ← 現在の主軸
 - [ ] M0 発話思考法による検証
 - [ ] M3 受け入れチェックリストの記入
-- [ ] 実測問題の修正（[FIELD-ISSUES](docs/FIELD-ISSUES.md)：走行↔実行の連動、出力の途切れ表示、探索ループのモデルによる精密化）
+- [x] 走行↔実行のイベント連動（v0.9.50、FI-01：token流クルーズ、execute_done落位、中断はその場停止）
+- [ ] 実測問題の修正（[FIELD-ISSUES](docs/FIELD-ISSUES.md)：探索ループのモデル精密化 FI-03、UI i18n FI-08）
 - [ ] 実ツールチェーン（ルートA）
 
 ## 🤝 コントリビュート

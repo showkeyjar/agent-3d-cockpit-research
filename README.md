@@ -6,7 +6,7 @@
 
 *Turn agent collaboration from reading replies into driving a journey.*
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.5-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.50-5ee0ff)](prototype/CHANGELOG.md)
 [![Research](https://img.shields.io/badge/research-P1–P4%20criteria-ff5fe0)](docs/PROBLEM.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)](prototype/requirements.txt)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
@@ -149,7 +149,7 @@ python tools/open_cockpit.py   # 探活→自动拉起后端→打开浏览器
 ## 📁 仓库结构
 
 ```
-├── prototype/            # 可运行实证原型（v0.9.49.5）
+├── prototype/            # 可运行实证原型（v0.9.50）
 │   ├── index.html        #   3D 驾驶舱前端（Three.js，零构建）
 │   ├── backend/          #   FastAPI + WebSocket 后端（执行链/账本/记忆）
 │   ├── forecaster/       #   前瞻推演器（采样/分桶/分歧度/3D 投影）
@@ -207,7 +207,8 @@ node verify_opaque.js      # 实验操纵完整性
 - [ ] **M2 真人对照实验**（A/B 呈现效应、B/C 执行真实性、B/B2 指纹环单变量）← 当前主线
 - [ ] M0 出声思维验证（用户「没有实质进展」的内心指向）
 - [ ] M3 验收清单填实 + 假设状态回写
-- [ ] 实测问题修复（[FIELD-ISSUES](docs/FIELD-ISSUES.md)：行驶↔执行绑定、截断标注、探索环模型精修）
+- [x] 行驶↔执行事件绑定（v0.9.50，FI-01：token 流驱动巡航、execute_done 落位、中断就地停）
+- [ ] 实测问题修复（[FIELD-ISSUES](docs/FIELD-ISSUES.md)：探索环模型精修 FI-03、UI i18n FI-08）
 - [ ] 真实工具链路段（路线 A：检索/代码执行/校验接真实后端，每步可核对）
 - [ ] 真实 embedding 语义档的领域校准
 

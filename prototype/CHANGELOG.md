@@ -7,6 +7,48 @@
 
 ---
 
+## v0.9.50 · 2026-11-22 · FI-01 事件驱动执行行驶：「行驶」不再是完成后的过场动画
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) FI-01（🔴 愿景级）。
+**这是驾驶隐喻成立的关键一步**：旧时序 `execute_done → driveTo`，行驶时长由距离决定
+（`dist*100`），与真实执行完全解耦——车是「工作完成后的庆祝动画」。本版把行驶改由
+**真实执行事件**驱动，学科 2 检验问题 B1（路径位移 ↔ 真实工作）在实现层闭合。
+
+### 新时序（`beginExecDrive` / `execDriveOnToken` / `execDriveFinish` / `execDriveAbort`）
+
+- **出发即行驶**：`startExecution` 立刻 `beginExecDrive(分支落位点)`，不再等 execute_done；
+- **execute_ack = 起步信号**：后端受理即 `started=true`（0 字也给微小正目标，「已受理」与「未受理」可区分）；
+- **token 流 = 巡航**：目标进度 = 真实输出字数 / 220，封顶 **0.9**——执行期间车绝不越过 90%（活没干完不到站）；模型快车快、模型慢车慢；p 单调只进不退；
+- **无 token 的忙等**：极慢巡航（0.008/s，上限 0.225）如实表达「在干活但没产出」，不是假节拍；
+- **execute_done = 落位信号**：剩余路段 ~700ms 单调滑完并精确停靠（`ARRIVAL_CAM_DIST`、docked）；到达广播（结果卡/账本/续探）仍严格绑定落位完成，时序纪律不变；
+- **中断 = 就地停车**：p 冻结，保留已走过的真实位移，绝不滑向终点（与中断第三态天然契合）；
+- **失败/超时 = 就地停车**：不 docked、不宣告完成；**澄清 = 单调退回岔口**（没走过这一步）；
+- **token reset（重试）**：进度回落 ≤0.05 重新由真实字数驱动，重走后仍可达终点；
+- **并发纪律**：落位收尾期间 `startExecution/travelFuture/undoStep/forkFromRun` 一律提示稍候（防错锚）；新提问/传统 driveTo 接管时作废在途执行行驶（`_driveToken` 既有机制）。
+
+### 不变量（全量几何回归锁死）
+
+机位公式一字未动（`currentPos − forward(camAnchorYaw) × dist`，眼位 1.35m）；
+`camOffRail≈0` 全程每一采样点；`camAnchorYawT` 出发写入、落位收敛（与 driveTo 同契约）；
+停靠收近并入行驶进度单调完成、落位即静止无回弹；`manualCamDirty` 尊重手动视角；
+驶过淡出/近场淡出/「现在」条隐藏恢复时序全部沿用。
+
+### 验证
+
+- **新回归 `test_exec_drive.js` 36/36**（桩 WS + 真实入口）：A 出发即行驶 / B token 单调驱动 + 0.9 封顶 / C 落位精确停靠 + anchor 收敛 + 2s 无回弹 / D 中断就地停 / E 澄清退回岔口 / F 失败不 dock / G reset 后仍达终点 / H 全程 rail≈0。
+- **真实后端端到端**（Ollama gemma3:1b）：280 字起草任务，巡航采样 p 0.02→0.69 随字数 40→322 单调推进、封顶 0.9 遵守、maxRail=0；落位 docked/dist=5/anchor==anchorT/source=llm/228tok/0 JS 错误。真实中断：首 token 后 stop → 位移冻结 0.0000、status=interrupted、rail=0。
+- **全量几何回归**：camera_diag、rail_camera 14/14、driving_view、ux_fixes5/6/7、nowsign_2、f32/f36/f37/f38、immersive、occlusion 全绿。
+- **全量功能回归**：honesty 5/5、opaque 22/22、keyboard 22/22、compare 27/27、cancel 33/33、timeline 42/42、practical 16/16、scenery 21/21、future_travel、arrival_persist 13/13、decorative、transparent-nolink、no-fingerprint 8/8、fi02_fi07 13/13、sign_topics 17/17、context_pull 14/14、refine_sync、clarify_dock/quick、click_det、walkthrough_real 15/15；后端 cancel 16/16、ws_lifecycle 14/14、truncation 16/16、expert_state 25/25、forecaster 29/29、topic_binding 全过。
+
+### 测试适配（如实记录，非产品回退）
+
+- `test_nowsign_2.js` C 段：夹具直接 finishOnce 时到达广播同步执行，`.show` 在 MO 挂上前已加——改为先挂观察器再触发 + 已 shown 兜底（两种时序都覆盖）。
+- `test_ux_fixes5.js` C 段：pickAt 扫描点可能落在底部输入栏（#intentRow）上被 DOM 吃掉——补 `elementFromPoint` 校验与用户真实可点语义一致。**基线对照确认此 flake 在改动前同样存在**（双向 stash 验证），非本版引入。
+- `walkthrough_real.js` P0 取消段：小模型可能瞬间生成完，固定等 2.5s 再 stop 变成「迟到取消」（v0.9.16 cancel_late 契约，done 是事实非伪装）——改为等「真实在生成」再取消；已生成完则按迟到取消分支如实断言。
+- **已知环境项（基线同样失败，stash 对照确认）**：`test_e2e` / `test_e2e_b` / `test_seq` 顺序链在本机小模型 + 无头环境 Page crashed / 拆分质量不足，不具判定力；与本版无关，如实记录不掩盖。
+
+---
+
 ## v0.9.49.5 · 2026-11-22 · 实测修复批次三：长指令句碎片路牌质量门（FI-04）
 
 来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) FI-04。纯 forecaster 层，
