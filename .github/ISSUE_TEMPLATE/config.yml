@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔬 Join the human experiments (M2)
+    url: https://github.com/showkeyjar/agent-3d-cockpit-research/blob/master/docs/M-EXPERIMENT.md
+    about: Participant recruitment, protocol, and ethics — see §10.
+  - name: 📚 Research documentation
+    url: https://github.com/showkeyjar/agent-3d-cockpit-research/tree/master/docs
+    about: Problem definition, audits, evidence chain, acceptance checklist.
