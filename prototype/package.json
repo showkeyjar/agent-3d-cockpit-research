@@ -1,6 +1,6 @@
 {
   "name": "agent-3d-cockpit-prototype",
-  "version": "0.9.49.4",
+  "version": "0.9.49.5",
   "private": true,
   "description": "Agent 3D Cockpit 研究原型 —— 前端 + 回归测试（playwright-core）。后端依赖见 requirements.txt。",
   "scripts": {
