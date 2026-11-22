@@ -12,6 +12,7 @@
 >
 > 判据映射沿用 [PROBLEM.md](PROBLEM.md) P1–P4 与 [M3-ACCEPTANCE.md](M3-ACCEPTANCE.md) P0。
 > 修复优先级：🔴 阻塞愿景成立 / 🟠 损害核心承诺 / 🟡 工程与可用性 / 🟢 体验增强。
+> 修复状态：FI-05、FI-06 已于 v0.9.49.3 修复并回归（2026-11-22）；其余待修。
 
 ---
 
@@ -83,7 +84,7 @@ execute 主链调用写死 `max_tokens=220`（约 :756）。未见对 `finish_re
 
 ---
 
-## FI-05 🟠 前端硬编码 `localhost:8770`：不可部署、不可远程实验
+## FI-05 ✅ 已修复（v0.9.49.3）前端硬编码 `localhost:8770`：不可部署、不可远程实验
 
 **现象（实测）**：后端 `PORT` 改端口后前端立刻失联；无法置于反代/域名/局域网后供被试远程访问。
 
@@ -96,7 +97,7 @@ forecast（:3472、:6875）、journeys（:5276、:5316）。
 
 ---
 
-## FI-06 🟡 健康探针对 Ollama 报 `llm_service: unknown`
+## FI-06 ✅ 已修复（v0.9.49.3）健康探针对 Ollama 报 `llm_service: unknown`
 
 **现象（实测）**：Ollama 正常出 token，`/api/health` 仍报 unknown，误导排障。
 

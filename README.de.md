@@ -4,7 +4,7 @@
 
 **Zusammenarbeit mit KI-Agenten: vom Lesen von Antworten zum Fahren einer Reise.**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.2-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.49.3-5ee0ff)](prototype/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · **Deutsch** · [Français](README.fr.md) · [Español](README.es.md)

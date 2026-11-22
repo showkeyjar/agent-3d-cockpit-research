@@ -144,14 +144,19 @@ def get_forecaster(fast: bool = False) -> SpeculativeForecaster:
 
 @app.get("/api/health")
 async def health():
-    """健康检查：顺带报告模型服务是否在线。兼容 strata（/status）与 llama.cpp（/health）。"""
+    """健康检查：顺带报告模型服务是否在线。兼容 strata（/status）、llama.cpp（/health）
+    与任意 OpenAI 兼容端点（{base}/models：Ollama / vLLM / 云端）。FI-06。"""
     def probe():
         import urllib.request
         from urllib.parse import urlsplit
         # 本机 HTTP_PROXY 会误转发 127.0.0.1/localhost 请求 → 探针超时误报 unknown。
-        # 用空 ProxyHandler 建 opener，强制直连回环地址。
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        # 回环地址用空 ProxyHandler 强制直连；远程端点尊重系统代理。
         u = urlsplit(LLM_BASE_URL())
+        opener = (
+            urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            if u.hostname in ("localhost", "127.0.0.1", "::1")
+            else urllib.request.build_opener()
+        )
         try:
             with opener.open(f"{u.scheme}://{u.netloc}/status", timeout=3) as r:
                 st = json.loads(r.read())
@@ -166,6 +171,19 @@ async def health():
             with opener.open(f"{u.scheme}://{u.netloc}/health", timeout=3) as r:
                 if r.status == 200:
                     return {"llm_service": "llamacpp", "llm_busy": None, "llm_prompt_tokens": 0}
+        except Exception:
+            pass
+        # FI-06：OpenAI 兼容 /models 探测（Ollama 的 /v1 无 /health，此前误报 unknown）。
+        # 只读模型列表，不消耗推理槽；带鉴权头以兼容云端端点。
+        try:
+            base = LLM_BASE_URL().rstrip("/")
+            key = LLM_API_KEY()
+            headers = {"Authorization": f"Bearer {key}"} if key and key != "EMPTY" else {}
+            req = urllib.request.Request(base + "/models", headers=headers)
+            with opener.open(req, timeout=4) as r:
+                body = json.loads(r.read(65536))
+            if isinstance(body.get("data"), list):
+                return {"llm_service": "openai_compat", "llm_busy": None, "llm_prompt_tokens": 0}
         except Exception:
             pass
         return {"llm_service": "unknown", "llm_busy": None, "llm_prompt_tokens": 0}

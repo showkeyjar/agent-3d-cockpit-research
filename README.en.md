@@ -4,7 +4,7 @@
 
 **Turn agent collaboration from reading replies into driving a journey.**
 
-[![Version](https://img.shields.io/badge/prototype-v0.9.49.2-5ee0ff)](prototype/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/prototype-v0.9.49.3-5ee0ff)](prototype/CHANGELOG.md)
 [![Research](https://img.shields.io/badge/research-P1–P4%20criteria-ff5fe0)](docs/PROBLEM.md)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)](prototype/requirements.txt)
 [![License](https://img.shields.io/badge/license-MIT-34f5a0)](LICENSE)
@@ -144,7 +144,7 @@ Full details: [prototype/README.md](prototype/README.md).
 ## 📁 Repository layout
 
 ```
-├── prototype/            # Runnable prototype (v0.9.49.2)
+├── prototype/            # Runnable prototype (v0.9.49.3)
 │   ├── index.html        #   3D cockpit frontend (Three.js, zero build)
 │   ├── backend/          #   FastAPI + WebSocket backend (execution/ledger/memory)
 │   ├── forecaster/       #   Speculative forecaster (sampling/bucketing/divergence/3D projection)

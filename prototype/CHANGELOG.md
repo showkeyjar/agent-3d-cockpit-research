@@ -7,6 +7,31 @@
 
 ---
 
+## v0.9.49.3 · 2026-11-22 · 实测问题修复批次一：前端相对路径化（FI-05）+ 健康探针 OpenAI 兼容（FI-06）
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) 实测问题清单（博文制作过程端到端实跑发现）。
+本批为零红线触碰项：执行链语义、3D 几何、中断态、实验操纵全部不动。
+
+- **FI-05 前端相对路径化**：`index.html` 7 处硬编码 `localhost:8770` 清零——
+  `WS_URL` 由 `location` 推导（`https:` 自动 `wss:`；`file://` 直开回退本机 8770 保持静态预览可用）；
+  6 处 REST fetch 改相对路径 `/api/…`。后端换端口 / 反代 / 域名 / HTTPS / 局域网被试访问均零配置。
+  验证：非默认端口 8890 起后端，页面零配置连上 WS + REST，真实模型完整走一轮
+  （source=llm / 48 tokens / 0 JS 错误，API 请求 host 全部跟随页面 host）。
+- **FI-06 健康探针补 OpenAI `/models`**：`server.py` `health()` 探针链追加 `{base}/models`
+  （带 Bearer 鉴权头、只读列表不占推理槽），Ollama / vLLM / 云端端点不再误报 `llm_service: unknown`，
+  如实报 `openai_compat`。回环直连绕代理逻辑同时修正为仅回环强制直连（远程端点尊重系统代理，
+  与 `/api/config/llm/test` 口径一致）。验证：Ollama 后端下 `/api/health` 报 `openai_compat`。
+- **回归**：后端 `test_cancel_backend` 16/16、`test_ws_lifecycle` 14/14、`test_expert_state` 25/25、
+  forecaster pytest 29/29；前端 `test_honesty` 5/5（20 牌）、`verify_opaque` 22/22、
+  `test_keyboard` 22/22、`test_compare` 27/27、`test_cancel` 33/33、`test_timeline` 42/42、
+  `test_practical` 16/16、`test_scenery` 21/21、`test_camera_diag` ALL_PASS、
+  `test_future_travel` 3 轮探索链无死路。
+- **已知环境项（非本批引入，基线复测确认）**：`test_e2e` / `test_e2e_b` 的「到达/未来牌投影不稳定」
+  软性观察项在本改动前的基线代码上同样失败（stash 对照验证）；`test_e2e` 顺序链依赖 35B 级模型
+  的任务拆分质量，小模型（gemma3:1b）环境下不具判定力。两者均与相对路径化无关，如实记录不掩盖。
+
+---
+
 ## v0.9.49.2 · 2026-11-20 · 工程加固批次二：WS 生命周期 + 哨兵分离 + 投影确定性 + 同步工具
 
 外部审查第二批 P1 修复。执行链语义、3D 几何契约、实验操纵零改动。

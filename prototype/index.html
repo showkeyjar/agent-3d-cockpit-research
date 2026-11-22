@@ -2460,7 +2460,11 @@ canvas.addEventListener('dblclick', e => {
 /* ── 后端连接 ── */
 let ws = null, wsConnected = false, _lastContext = '';
 let _wsRetry = 0;   // 断线重连退避计数；连上即清零
-const WS_URL = 'ws://localhost:8770/ws';
+// FI-05：WS 地址由页面 location 推导（相对化）——后端换端口/反代/域名/HTTPS 均零配置。
+// file:// 直开（location.host 为空）时回退本机默认 8770，保持静态预览可用。
+const WS_URL = location.host
+  ? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
+  : 'ws://localhost:8770/ws';
 
 function wsConnect(){
   try { ws = new WebSocket(WS_URL); } catch(e) { return; }
@@ -2936,7 +2940,7 @@ function updateConn(){
 /* 每 12 秒探一次模型状态：忙时明确告诉用户为什么没出模型结果 */
 async function pollStrata(){
   try {
-    const r = await fetch('http://localhost:8770/api/health', {cache:'no-store'});
+    const r = await fetch('/api/health', {cache:'no-store'});
     const d = await r.json();
     _llmBusy = d.llm_busy;
     updateConn();
@@ -3469,7 +3473,7 @@ function runForecast(context, opts={}){
   hideCompare();
   renderBranchCards([]);
 
-  const url = `http://localhost:8770/api/forecast?context=${encodeURIComponent(context)}&k=5`;
+  const url = `/api/forecast?context=${encodeURIComponent(context)}&k=5`;
 
   // ① 本地快速通道：完全不碰 LLM，几十毫秒就把前方路牌立起来
   fetch(url + '&fast=1')
@@ -5273,7 +5277,7 @@ function drawHistoryTrail(nodes){
 
 async function loadHistory(){
   try{
-    const r = await fetch('http://localhost:8770/api/journeys?limit=20');
+    const r = await fetch('/api/journeys?limit=20');
     const d = await r.json();
     _history = Array.isArray(d) ? d : [];
   }catch(e){ _history = []; }
@@ -5313,7 +5317,7 @@ async function showHistoryJourney(id, el){
   if (el) el.classList.add('sel');
   let data;
   try{
-    data = await (await fetch('http://localhost:8770/api/journeys/' + id)).json();
+    data = await (await fetch('/api/journeys/' + id)).json();
   }catch(e){ return; }
   const nodes = data.nodes || [];
   drawHistoryTrail(nodes);
@@ -5383,7 +5387,7 @@ function saveJourneyRecord(ok, detail, idx){
       exec_self_rating: detail.self_rating || '',
     },
   };
-  fetch('http://localhost:8770/api/journeys', {
+  fetch('/api/journeys', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body),
   }).then(() => loadHistory()).catch(() => {});
@@ -6872,7 +6876,7 @@ function autoExploreNext(arrivalPos, doneLabel, doneSteps){
   // 主推演此刻已是 fast 通道，未来牌同样应是「快速预览」而非再来一次完整 LLM 推演；
   // 完整推演会占 35B 单槽且耗时 20s+，在刚结束一次 execute 后排队 → 未来牌延迟到 20s+ 才出现，
   // 用户感知为「第二轮路牌消失」（已知的真实回归点）。fast 通道秒级返回，且 source 如实标 local。
-  fetch(`http://localhost:8770/api/forecast?context=${encodeURIComponent(ctx)}&k=5&fast=1`)
+  fetch(`/api/forecast?context=${encodeURIComponent(ctx)}&k=5&fast=1`)
     .then(r => r.json())
     .then(res => {
       // 作废判据：本段路已被前进走完 / 已在执行新岔路 / 期间又有更新的推演（token 比较）
