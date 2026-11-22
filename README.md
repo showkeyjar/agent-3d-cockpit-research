@@ -79,6 +79,8 @@
 
 我们审计过自己的原型，发现旧执行链的中间步骤（「检索」「校验」）是 `sleep(0.09)` 驱动的**剧场**——进度条在动，工作没发生。审计结论、运行时证据与修复过程全部公开在 [docs/AUDIT.md](docs/AUDIT.md) 与 [docs/RUNTIME-AUDIT.md](docs/RUNTIME-AUDIT.md)。
 
+运行时计时显示旧链路的 `task_update` 间隔整齐落在 90–100ms、零散布——sleep 的指纹；该记录中假节拍约占总时长 86%（仅为该记录的诊断数字）。修复后复测：整齐节拍消失，token 流覆盖执行时长的 60–70%。
+
 由此确立了四条**实质进展判据（P1–P4）**，作为所有开发的先验闸门：
 
 | 判据 | 必须回答 | 反例 |
@@ -176,7 +178,7 @@ python tools/open_cockpit.py   # 探活→自动拉起后端→打开浏览器
 | [CROSS-TURN-PROGRESS.md](docs/CROSS-TURN-PROGRESS.md) | 跨轮次进展：三层不同步的可复算事实 + RQ1–RQ5 |
 | [VISION-DECOMPOSITION.md](docs/VISION-DECOMPOSITION.md) | 三愿景功能拆分与优先级路线 |
 
-多语言研究概要：[English](docs/i18n/RESEARCH-SUMMARY.en.md) · [日本語](docs/i18n/RESEARCH-SUMMARY.ja.md) · [Deutsch](docs/i18n/RESEARCH-SUMMARY.de.md) · [Français](docs/i18n/RESEARCH-SUMMARY.fr.md) · [Español](docs/i18n/RESEARCH-SUMMARY.es.md)
+多语言研究概要（附[术语对照表](docs/i18n/GLOSSARY.md)）：[English](docs/i18n/RESEARCH-SUMMARY.en.md) · [日本語](docs/i18n/RESEARCH-SUMMARY.ja.md) · [Deutsch](docs/i18n/RESEARCH-SUMMARY.de.md) · [Français](docs/i18n/RESEARCH-SUMMARY.fr.md) · [Español](docs/i18n/RESEARCH-SUMMARY.es.md)
 
 ## 🧪 测试
 

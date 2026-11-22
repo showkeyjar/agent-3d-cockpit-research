@@ -30,16 +30,16 @@ Alle theatralischen Zwischenschritte wurden entfernt; die Ausführung konvergier
 
 **Grenze**: Route B repariert P1/P3, nicht automatisch P2 — bei Analyseaufgaben ohne Eingabedaten sind die vom Modell generierten konkreten Zahlen nicht nachrechenbar, P2 scheitert. Die UI muss „fehlende Eingabe" ehrlich anzeigen, statt Schlussfolgerungen zu erfinden.
 
-## Disziplinäres Framework: bidirektionaler Bruch (broken link)
+## Disziplinäres Framework: bidirektionaler Bruch („broken link“)
 
 - Disziplin 1 (Vektorraum-Kontextvisualisierung): Echte semantische Strukturveränderung ließ einst keinen wahrnehmbaren Unterschied im Pfadraum;
 - Disziplin 2 (3D-Pfraum-HCI): Reiche Präsentation hatte einst „Fortschritte" ohne reale Verschiebung.
 
-Keine gegenseitige Bezeugung = bidirektionaler Bruch — die mechanistische Hypothese hinter „kein substanzieller Fortschritt" (Validierung durch Humanstudien ausstehend).
+Keine gegenseitige Bezeugung = bidirektionaler Bruch — die mechanistische Hypothese hinter „kein substanzieller Fortschritt" (Validierung durch Studien mit Teilnehmenden ausstehend).
 
 ## Experimentplan
 
-Die M1-Apparatur steht: A/B (opaque vs. transparente Ausführung), B0/B1 (3D-Kopplung, Einzelzuordnung), B2 (Fingerprint-Ring, Einzelvariable), C (dekorative Schein-Ausführung als Spiegelgruppe mit Debrief); drei Aufgabentypen (Entwurf / Analyse mit Daten / Analyse ohne Daten); Skalen s1–s7 + f1–f3. **M2-kontrollierte Humanstudien und M0 Think-Aloud stehen aus**; alle menschseitigen Kriterien bleiben unverifiziert bis Daten vorliegen — kein vorzeitiges Fertig-Statement.
+Die M1-Apparatur steht bereit: A/B (opaque vs. transparente Ausführung), B0/B1 (3D-Kopplung, Einzelzuordnung), B2 (Fingerprint-Ring, Einzelvariable), C (dekorative Schein-Ausführung als Spiegelgruppe mit Debrief); drei Aufgabentypen (Entwurf / Analyse mit Daten / Analyse ohne Daten); Skalen s1–s7 + f1–f3. **M2-kontrollierte Studien mit Teilnehmenden und M0 Think-Aloud stehen aus**; alle menschseitigen Kriterien bleiben unverifiziert bis Daten vorliegen — kein vorzeitiges Fertig-Statement.
 
 ## Evidenzdisziplin
 

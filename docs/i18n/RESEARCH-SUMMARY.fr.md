@@ -20,9 +20,9 @@ Progrès substantiel = l'interface permet à l'utilisateur de percevoir qu'*un �
 
 ## Découverte clé : théâtre au milieu + queue réelle
 
-L'audit statique (AUDIT.md) a montré que les étapes intermédiaires de l'ancienne chaîne n'appelaient jamais le LLM : `prompt` était un paramètre mort, la progression était pilotée par `asyncio.sleep(0.09)`, les sorties intermédiaires étaient des phrases templates. La preuve d'exécution (RUNTIME-AUDIT.md) l'a fixée par chronométrage WebSocket : intervalles `task_update` uniformément à 90–100 ms, dispersion nulle — l'empreinte de sleep ; dans cet enregistrement la fausse cadence occupait ~86 % de la durée totale (valeur diagnostique pour cet enregistrement seulement). Seule la dernière étape `output` était un vrai appel LLM.
+L'audit statique (AUDIT.md) a montré que les étapes intermédiaires de l'ancienne chaîne n'appelaient jamais le LLM : `prompt` était un paramètre mort, la progression était pilotée par `asyncio.sleep(0.09)`, les sorties intermédiaires étaient des phrases templates. Les preuves d'exécution (RUNTIME-AUDIT.md) l'a fixée par chronométrage WebSocket : intervalles `task_update` uniformément à 90–100 ms, dispersion nulle — l'empreinte de sleep ; dans cet enregistrement la fausse cadence occupait ~86 % de la durée totale (valeur diagnostique pour cet enregistrement seulement). Seule la dernière étape `output` était un vrai appel LLM.
 
-Cela a falsifié l'hypothèse optimiste « le progrès existe mais n'est pas montré » : le problème est d'abord P1/P3 (réalité et attribution), ensuite seulement P4 (présentation).
+Cela a réfuté l'hypothèse optimiste « le progrès existe mais n'est pas montré » : le problème est d'abord P1/P3 (réalité et attribution), ensuite seulement P4 (présentation).
 
 ## Le correctif : Route B (déclassement honnête)
 

@@ -77,14 +77,16 @@ They must attest to each other. Semantic progress invisible in the path, or flas
 
 We audited our own prototype and found the old execution chain's intermediate steps ("retrieval", "verification") were **theater** driven by `sleep(0.09)` — the progress bar moved, no work happened. The audit, runtime evidence, and fix are fully public in [docs/AUDIT.md](docs/AUDIT.md) and [docs/RUNTIME-AUDIT.md](docs/RUNTIME-AUDIT.md).
 
+Runtime timing showed the old chain's `task_update` intervals sat uniformly at 90–100 ms with zero spread — the fingerprint of sleep; in that record, fake cadence occupied ~86% of total duration (a diagnostic figure for that record only). After the fix: the uniform cadence disappeared, and token streaming covered 60–70% of execution time.
+
 This established four **substantive-progress criteria (P1–P4)** as a pre-implementation gate for all development:
 
 | Criterion | Must answer | Counter-example |
 | --- | --- | --- |
-| **P1 Real** | Did the task/artifact actually change? | Only sign colors changed; the report untouched |
-| **P2 Verifiable** | Can the user verify it themselves? | Only "done", no artifact or evidence |
-| **P3 Attributable** | Which step / who did it? | Attributing one generation to retrieval+verification that never ran |
-| **P4 Perceivable** | Is it recognizable in the UI? | Backend worked; UI shows an abstract percentage |
+| **P1 Reality** | Did the task/artifact actually change? | Only sign colors changed; the report untouched |
+| **P2 Verifiability** | Can the user verify it themselves? | Only "done", no artifact or evidence |
+| **P3 Attributability** | Which step / who did it? | Attributing one generation to retrieval+verification that never ran |
+| **P4 Perceptibility** | Is it recognizable in the UI? | Backend worked; UI shows an abstract percentage |
 
 Engineering red lines across all versions: **no fabricated completion signals, no fabricated data, interruption never impersonates completion, local fallback never impersonates the model.** Regression suites lock these invariants.
 
@@ -170,7 +172,7 @@ Full details: [prototype/README.md](prototype/README.md).
 | [M3-ACCEPTANCE.md](docs/M3-ACCEPTANCE.md) | Acceptance checklist: P0→P4 + four evidence tiers + dev self-check template |
 | [CROSS-TURN-PROGRESS.md](docs/CROSS-TURN-PROGRESS.md) | Cross-turn progress: reproducible three-layer desync facts + RQ1–RQ5 |
 
-Multilingual summaries: [中文](docs/i18n/RESEARCH-SUMMARY.zh.md) · [日本語](docs/i18n/RESEARCH-SUMMARY.ja.md) · [Deutsch](docs/i18n/RESEARCH-SUMMARY.de.md) · [Français](docs/i18n/RESEARCH-SUMMARY.fr.md) · [Español](docs/i18n/RESEARCH-SUMMARY.es.md)
+Multilingual summaries: [中文](docs/i18n/RESEARCH-SUMMARY.zh.md) · [日本語](docs/i18n/RESEARCH-SUMMARY.ja.md) · [Deutsch](docs/i18n/RESEARCH-SUMMARY.de.md) · [Français](docs/i18n/RESEARCH-SUMMARY.fr.md) · [Español](docs/i18n/RESEARCH-SUMMARY.es.md) · [Glossary](docs/i18n/GLOSSARY.md)
 
 *Primary research documents are written in Chinese; the summaries above give a faithful overview in your language. Translation PRs for full documents are very welcome.*
 

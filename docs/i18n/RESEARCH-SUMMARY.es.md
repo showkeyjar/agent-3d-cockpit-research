@@ -20,9 +20,9 @@ Progreso sustantivo = la interfaz permite al usuario percibir que *un estado rea
 
 ## Hallazgo clave: teatro en el medio + cola real
 
-La auditoría estática (AUDIT.md) mostró que los pasos intermedios de la cadena antigua nunca llamaban al LLM: `prompt` era un parámetro muerto, el progreso era impulsado por `asyncio.sleep(0.09)`, las salidas intermedias eran frases plantilla. La evidencia en tiempo de ejecución (RUNTIME-AUDIT.md) lo fijó con cronometraje WebSocket: intervalos `task_update` uniformes a 90–100 ms, dispersión cero — la huella de sleep; en ese registro la cadencia falsa ocupó ~86 % de la duración total (valor diagnóstico solo para ese registro). Solo el último paso `output` era una llamada LLM real.
+La auditoría estática (AUDIT.md) mostró que los pasos intermedios de la cadena antigua nunca llamaban al LLM: `prompt` era un parámetro muerto, el progreso era impulsado por `asyncio.sleep(0.09)`, las salidas intermedias eran frases plantilla. La evidencia en tiempo de ejecución (RUNTIME-AUDIT.md) lo confirmó con cronometraje WebSocket: intervalos `task_update` uniformes a 90–100 ms, dispersión cero — la huella de sleep; en ese registro la cadencia falsa ocupó ~86 % de la duración total (valor diagnóstico solo para ese registro). Solo el último paso `output` era una llamada LLM real.
 
-Esto falsó la hipótesis optimista «el progreso existe pero no se muestra»: el problema es primero P1/P3 (realidad y atribución), y solo después P4 (presentación).
+Esto refutó la hipótesis optimista «el progreso existe pero no se muestra»: el problema es primero P1/P3 (realidad y atribución), y solo después P4 (presentación).
 
 ## La corrección: Ruta B (degradación honesta)
 
