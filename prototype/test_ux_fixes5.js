@@ -1,4 +1,6 @@
 const { resolveChromePath } = require('./chrome_helper');
+// ⚠️ 既有 flake 基线：C 段 pickAt 扫描点可能落在底部输入栏 (#intentRow) 上被 DOM 吃掉，
+//    双向 stash 基线对照确认改动前同样存在——属测试取点问题，非产品回归。
 // UX 五修端到端验证：摄像机轨道原则 / 去光柱 / 去到达回弹 / 强调结果面板互动性
 //  A. 机位与视线解耦：拖拽自由改变 cam.yaw，但 camera.position 只由 camAnchorYaw 决定，
 //     横向脱轨距离 camOffRail 恒≈0，机位固定在路面中心线上方（司机眼位）。

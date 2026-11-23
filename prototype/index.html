@@ -264,6 +264,13 @@
   #taskBar .tb-ws.stop + .tb-name{color:#ffd9a3;}
   #taskBar .tb-name{flex:1;}
   #taskBar .tb-pct{font-size:10px;color:var(--muted);}
+  /* FI-09：等推理槽时的如实提示（首个真实 token 到达即撤下） */
+  #taskBar .tb-wait{display:flex;align-items:center;gap:7px;font-size:11px;
+    padding:5px 9px;margin-bottom:4px;border-radius:5px;color:#ffd27f;
+    background:rgba(255,177,61,.10);border:1px solid rgba(255,177,61,.30);}
+  #taskBar .tb-wait .tw-dot{width:6px;height:6px;border-radius:50%;background:#ffb13d;
+    animation:pulse 1.2s infinite;flex:none;}
+  #taskBar .tb-wait .tw-sec{font-variant-numeric:tabular-nums;color:#ffcf8a;}
   /* 路线 B：token 流式面板——模型逐字生成的真实文本在此生长 */
   #taskBar .tb-stream{display:none;max-height:120px;overflow-y:auto;white-space:pre-wrap;
     word-break:break-all;font-size:10px;line-height:1.5;color:#a8d8ff;margin-top:3px;
@@ -860,6 +867,117 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   #decisionChain .dc-badge.src-offline{ color:#ff7a8c; background:rgba(255,90,110,.16); }
   #decisionChain .dc-empty{ color:#7f93b5; font-size:12px; padding:8px 2px; }
 </style>
+<script>
+/* FI-08（v0.9.52）· UI 文案层 i18n — 核心界面层（HUD/凭据/按钮/状态词）
+   ★ 范围纪律：只翻译 UI 外壳文案；路牌 label/sub/steps 与产物正文来自模型、随提示词语言走，
+     不在本字典范围（见 docs/i18n/GLOSSARY.md）。
+   ★ 零回退保证：?lang 缺省或 navigator.language 非 en 时一律中文；缺 key 回退原文。
+   ★ 纯呈现层：不碰执行/账本/3D 不变量/实验操纵，A/B/B/C/B/B2 组行为一致。 */
+(function(){
+  var DICT = {
+    zh: {
+      navTitle:'语义空间导航', navSub:'Semantic Drive', connecting:'连接中…', connected:'已连接', modelReady:'模型就绪',
+      histBtn:'轨迹', timelineBtn:'时间线', decisionBtn:'决策链', modelBtn:'模型',
+      think:'思考中…', stopGen:'停止生成', answer:'回答',
+      modelSettings:'模型设置', modelSub:'改完点保存，立即生效', close:'关闭',
+      saveApply:'保存并生效', testConn:'测试连接', resetDefault:'恢复默认',
+      execLlm:'执行阶段调用大模型', apiKey:'API 密钥', apiKeyHint:'留空表示不改动',
+      baseUrl:'服务地址', modelAlias:'模型别名', embedding:'Embedding 模型',
+      compare:'对比候选', addDir:'加一条', dirHint:'或自己定一条方向，回车加入（真实执行，不伪造）',
+      follow:'继续深化', expand:'展开完整成果', rcClose:'收起',
+      proofLLM:'模型推演', proofLocal:'本地兜底', proofFast:'本地预览', proofOffline:'离线',
+      '⚠ 本地兜底':'⚠ 本地兜底', '⚠ 前端模板':'⚠ 前端模板', '等待推演':'等待推演',
+      '真实模型采样（模型本次参与）':'真实模型采样（模型本次参与）',
+      '本地快速预览（未调用模型）':'本地快速预览（未调用模型）',
+      '关键词模板兜底（模型未参与）':'关键词模板兜底（模型未参与）',
+      '前端固定模板（后端不可达）':'前端固定模板（后端不可达）',
+      proofFallback:'模型未参与', proofBranch:'当前岔路', proofFuture:'下一方向',
+      resultCard:'结果卡', timeline:'时间线', decisionChain:'决策链', empty:'暂无内容',
+      achieved:'已达成', partial:'部分达成', needInput:'需要补充输入',
+      interrupted:'已中断', done:'已完成', running:'执行中',
+      waitSlot:'等待推理槽', waited:'已等',
+      touchHint:'触屏：长按路牌出发 · 轻点选中/看结果'
+    },
+    en: {
+      navTitle:'Semantic Navigation', navSub:'Semantic Drive', connecting:'Connecting…', connected:'Connected', modelReady:'Model ready',
+      histBtn:'Trail', timelineBtn:'Timeline', decisionBtn:'Provenance', modelBtn:'Model',
+      think:'Thinking…', stopGen:'Stop', answer:'Answer',
+      modelSettings:'Model settings', modelSub:'Changes apply instantly on save', close:'Close',
+      saveApply:'Save & apply', testConn:'Test connection', resetDefault:'Reset',
+      execLlm:'Use LLM during execution', apiKey:'API key', apiKeyHint:'Leave blank to keep unchanged',
+      baseUrl:'Base URL', modelAlias:'Model alias', embedding:'Embedding model',
+      compare:'Compare', addDir:'Add one', dirHint:'Or type a direction, Enter to add (real execution, no fake)',
+      follow:'Go deeper', expand:'Expand full result', rcClose:'Collapse',
+      proofLLM:'Model', proofLocal:'Local fallback', proofFast:'Local preview', proofOffline:'Offline',
+      '⚠ 本地兜底':'⚠ Local fallback', '⚠ 前端模板':'⚠ Frontend template', '等待推演':'Awaiting forecast',
+      '真实模型采样（模型本次参与）':'Real model sampling (model participated)',
+      '本地快速预览（未调用模型）':'Local quick preview (no model call)',
+      '关键词模板兜底（模型未参与）':'Keyword-template fallback (no model)',
+      '前端固定模板（后端不可达）':'Frontend fixed template (backend unreachable)',
+      proofFallback:'No model involved', proofBranch:'Current fork', proofFuture:'Next directions',
+      resultCard:'Result', timeline:'Timeline', decisionChain:'Provenance', empty:'Nothing yet',
+      achieved:'Achieved', partial:'Partial', needInput:'Needs input',
+      interrupted:'Interrupted', done:'Done', running:'Running',
+      waitSlot:'Awaiting inference slot', waited:'waited',
+      touchHint:'Touch: long-press a sign to launch · tap to select/inspect'
+    }
+  };
+  var q = new URLSearchParams(location.search).get('lang');
+  var lang = (q === 'en' || q === 'zh') ? q
+    : (/^en/i.test(navigator.language || '') ? 'en' : 'zh');
+  window.__cockpitLang = lang;
+  window.__i18nDict = DICT;
+  // 取词：缺 key / 非目标语言 → 返回中文词条（零回退）
+  window.t = function(key){
+    var d = DICT[lang] || DICT.zh;
+    return (d && d[key] != null) ? d[key] : (DICT.zh[key] != null ? DICT.zh[key] : key);
+  };
+  // 动态文案：第二个参数是中文原文（未命中字典时原样返回，保证旧调用零回退）
+  var REVERSE = {};
+  Object.keys(DICT.zh).forEach(function(k){ REVERSE[DICT.zh[k]] = k; });
+  window.L = function(zhText){
+    var k = REVERSE[zhText];
+    return (k && DICT[lang] && DICT[lang][k] != null) ? DICT[lang][k] : zhText;
+  };
+  // 静态节点：带 data-i18n 的元素在 DOMContentLoaded 后按 key 替换 textContent
+  function applyI18n(){
+    if (lang === 'zh') return;   // 中文零改动，杜绝任何回退风险
+    document.querySelectorAll('[data-i18n]').forEach(function(el){
+      var v = t(el.getAttribute('data-i18n'));
+      if (v != null && el.dataset.i18nText !== v){
+        el.dataset.i18nText = v;
+        el.textContent = v;
+      }
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(function(el){
+      el.setAttribute('title', t(el.getAttribute('data-i18n-title')));
+    });
+    document.querySelectorAll('[data-i18n-ph]').forEach(function(el){
+      el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
+    });
+  }
+  // FI-09：触屏设备判定（与手势处理共用同一口径），并据此显示触屏操作提示行
+  var _touchOverride = null;   // 测试可注入覆盖：null=按真实设备判定
+  window.__isTouchDevice = function(){
+    if (_touchOverride != null) return _touchOverride;
+    return (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0);
+  };
+  window.__setTouchDeviceOverride = function(v){
+    _touchOverride = (v == null) ? null : !!v;
+    applyTouchHint();
+    return window.__isTouchDevice();
+  };
+  function applyTouchHint(){
+    var el = document.getElementById('touchHint');
+    if (!el) return;
+    el.style.display = window.__isTouchDevice() ? 'block' : 'none';
+  }
+  window.__applyTouchHint = applyTouchHint;
+  function bootI18n(){ applyI18n(); applyTouchHint(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootI18n);
+  else bootI18n();
+})();
+</script>
 </head>
 <body>
 <script>
@@ -898,33 +1016,33 @@ body.immersive #immersiveHud{display:block;opacity:1;}
 
 <div id="headbar">
   <div class="dot"></div>
-  <b>语义空间导航</b>
-  <span>Semantic Drive</span>
-  <div id="statusDot"><span class="sd" id="connDot"></span><span id="connText">连接中…</span></div>
-  <button id="histBtn" title="查看走过的轨迹">◷ 轨迹 <span id="histCount">0</span></button>
-  <button id="timelineBtn" title="本次旅程 2D 时间线：回看 / 对照 / 分叉重走 / 导出（T）">⇥ 时间线 <span id="tlCount">0</span></button>
-  <button id="decisionBtn" title="决策溯源链：你问了什么、选了哪条、得出什么（D）">⛓ 决策链 <span id="dcCount">0</span></button>
-  <button id="modelBtn" title="模型设置：配置大模型的地址/别名/密钥，改完立即生效，无需重启">⚙ 模型</button>
+  <b data-i18n="navTitle">语义空间导航</b>
+  <span data-i18n="navSub">Semantic Drive</span>
+  <div id="statusDot"><span class="sd" id="connDot"></span><span id="connText" data-i18n="connecting">连接中…</span></div>
+  <button id="histBtn" title="查看走过的轨迹">◷ <span data-i18n="histBtn">轨迹</span> <span id="histCount">0</span></button>
+  <button id="timelineBtn" title="本次旅程 2D 时间线：回看 / 对照 / 分叉重走 / 导出（T）">⇥ <span data-i18n="timelineBtn">时间线</span> <span id="tlCount">0</span></button>
+  <button id="decisionBtn" title="决策溯源链：你问了什么、选了哪条、得出什么（D）">⛓ <span data-i18n="decisionBtn">决策链</span> <span id="dcCount">0</span></button>
+  <button id="modelBtn" title="模型设置：配置大模型的地址/别名/密钥，改完立即生效，无需重启">⚙ <span data-i18n="modelBtn">模型</span></button>
 </div>
 
 <!-- 模型设置面板：独立产品能力——界面里配置大模型，热更新无需重启 -->
 <div id="modelPanel">
-  <div class="mp-head"><b>⚙ 模型设置</b><span class="mp-sub">改完点保存，立即生效</span><button id="mpClose" title="关闭">×</button></div>
+  <div class="mp-head"><b>⚙ <span data-i18n="modelSettings">模型设置</span></b><span class="mp-sub" data-i18n="modelSub">改完点保存，立即生效</span><button id="mpClose" title="关闭">×</button></div>
   <div id="mpBody">
     <div class="mp-field"><label>服务地址 base_url <span class="src" id="src-base_url"></span></label>
       <input type="text" id="mpBaseUrl" placeholder="http://localhost:8083/v1" autocomplete="off"></div>
     <div class="mp-field"><label>模型别名 model <span class="src" id="src-model"></span></label>
       <input type="text" id="mpModel" placeholder="local-primary" autocomplete="off"></div>
     <div class="mp-field"><label>API 密钥 api_key <span class="src" id="src-api_key"></span></label>
-      <input type="password" id="mpApiKey" placeholder="留空表示不改动" autocomplete="new-password"></div>
+      <input type="password" id="mpApiKey" data-i18n-ph="apiKeyHint" placeholder="留空表示不改动" autocomplete="new-password"></div>
     <div class="mp-field"><label>Embedding 模型（留空用哈希回退）<span class="src" id="src-embedding_model"></span></label>
       <input type="text" id="mpEmbedding" placeholder="留空 = hash" autocomplete="off"></div>
-    <label class="mp-row"><input type="checkbox" id="mpExecLlm"> 执行阶段调用大模型 <span class="src" id="src-exec_use_llm" style="float:none;"></span></label>
+    <label class="mp-row"><input type="checkbox" id="mpExecLlm"> <span data-i18n="execLlm">执行阶段调用大模型</span> <span class="src" id="src-exec_use_llm" style="float:none;"></span></label>
     <div id="mpResult"></div>
     <div id="mpActions">
-      <button id="mpSave">保存并生效</button>
-      <button id="mpTest">测试连接</button>
-      <button id="mpReset">恢复默认</button>
+      <button id="mpSave" data-i18n="saveApply">保存并生效</button>
+      <button id="mpTest" data-i18n="testConn">测试连接</button>
+      <button id="mpReset" data-i18n="resetDefault">恢复默认</button>
     </div>
     <div class="mp-note">来源标注：file=界面配置（写盘持久）/ env=环境变量 / default=内置默认。密钥永不回传明文；留空保存表示沿用原值。恢复默认会删除配置文件，回到环境变量。</div>
   </div>
@@ -957,7 +1075,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   </div>
 </div>
 
-<div id="thinkBar"><span class="spin"></span><span id="thinkText">思考中…</span><button type="button" id="stopGenBtn" title="停止本次生成（Esc）">⏹ 停止生成</button></div>
+<div id="thinkBar"><span class="spin"></span><span id="thinkText" data-i18n="think">思考中…</span><button type="button" id="stopGenBtn" title="停止本次生成（Esc）">⏹ <span data-i18n="stopGen">停止生成</span></button></div>
 
 <div id="nowBar">
   <div class="nb-line"><span class="nb-dot"></span><span class="nb-main" id="nbMain">现在</span></div>
@@ -986,7 +1104,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
       <div class="rc-question-big" id="rcQuestionBig" style="display:none;"></div>
       <div class="rc-input-row" id="rcInputRow" style="display:none;">
         <input type="text" id="rcAnswerInput" placeholder="输入你的回答…" autocomplete="off" />
-        <button id="rcAnswerBtn">回答 →</button>
+        <button id="rcAnswerBtn"><span data-i18n="answer">回答</span> →</button>
       </div>
       <div id="rcClarifyGuide" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid rgba(255,190,90,.42);border-radius:8px;background:rgba(255,190,90,.08);color:#ffd9a0;font-size:12px;line-height:1.6;">
         <div id="rcClarifyGuideText" style="margin-bottom:8px;"></div>
@@ -1027,10 +1145,10 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   </section>
   <div class="section-label" id="branchSectionLabel" style="display:none;">◆ 你可以这样走 <span id="branchProofTag" class="src-llm">模型推演</span></div>
   <div id="branchTools" class="hidden">
-    <button type="button" id="cmpToggle" class="cmp-toggle" title="把多个候选的计划并排摆开，方便对比">⇄ 对比候选</button>
+    <button type="button" id="cmpToggle" class="cmp-toggle" title="把多个候选的计划并排摆开，方便对比">⇄ <span data-i18n="compare">对比候选</span></button>
     <div class="custom-add">
-      <input type="text" id="customDirInput" placeholder="或自己定一条方向，回车加入（真实执行，不伪造）" maxlength="40" autocomplete="off" />
-      <button type="button" id="customDirAdd">+ 加一条</button>
+      <input type="text" id="customDirInput" data-i18n-ph="dirHint" placeholder="或自己定一条方向，回车加入（真实执行，不伪造）" maxlength="40" autocomplete="off" />
+      <button type="button" id="customDirAdd">+ <span data-i18n="addDir">加一条</span></button>
     </div>
   </div>
   <div id="comparePanel">
@@ -1103,6 +1221,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     [ ] = 键盘选路（上一 / 下一方向）· Enter 出发<br>
     Tab = 在候选 / 下一步方向间切换 · Esc 退出键盘选路<br>
     单击沿途概念图卡 = 回看它来自哪段上下文（文本近似）
+    <div id="touchHint" style="display:none;margin-top:6px;color:#9fe6c8;" data-i18n="touchHint">触屏：长按路牌出发 · 轻点选中/看结果</div>
   </div>
   <div class="lg-speed"><span class="lbl">驾驶速度</span>
     <button class="spd" data-s="0.5">慢</button>
@@ -1616,6 +1735,13 @@ let _activeArrivalSign = null;     // F3.2：当前与结果卡联动的到达�
 let _futureCandidates = [];        // 自主探索出的「未来的路」：未点亮的前方路径
 let _futureToken = 0;            // 自发推演 token：每次 autoExploreNext 递增，旧结果回来作废
 let _futurePositions = [];         // 每条未来路牌的落位 [x,y,z]（走向它时铺亮线/到达标记用）
+/* FI-03（v0.9.51）：探索环异步模型精修。fast 本地牌先秒级立住，模型槽空闲时后台
+   完整推演一次，回来后仅当「本轮推演仍有效」才升级牌面并如实换标。
+   _futureRefineToken 独立于 _futureToken：精修作废跟随本轮 token，但定时器需单独持有避免重叠。*/
+let _futureRefineTimer = null;
+let _futureRefineActive = false;
+const FUTURE_REFINE_WAIT_MS = 3000;   // 等模型槽空闲的轮询间隔
+const FUTURE_REFINE_MAX_MS = 30000;   // 超过此时长放弃精修（不让用户无限等一个后台结果）
 let _lastForecastMsg = null;       // 最近一次完整推演结果（回退后重建岔路用）
 /* F3.7 视野信息密度控制器：
    把「挡视野的牌主动隐身」从临时补丁升级为系统性分层原则——
@@ -1982,6 +2108,38 @@ function endDrag(e){
 }
 canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
+
+/* ── FI-09：触屏等价通道 ──
+   触屏浏览器不可靠地派发 dblclick（双击多被当缩放、常不触发），
+   故触屏用「长按 ~520ms 出发」作为双击的等价手势；轻点仍走现有 click 路径
+   （选中 / 看结果 / 后视镜 / 指纹环）。只复用 launchBranch 与 pickBranch，
+   不动相机公式、不新增完成信号。用 pointerType==='touch' 判定，鼠标行为零变化。 */
+const TOUCH_HOLD_MS = 520;
+let _touchHoldTimer = null;
+let _touchHoldFired = false;   // 长按已触发：吞掉随后的 click，避免再次 focusBranch
+function _isTouchPointer(e){ return !!(e && e.pointerType === 'touch'); }
+function _touchHoldCancel(){
+  if (_touchHoldTimer){ clearTimeout(_touchHoldTimer); _touchHoldTimer = null; }
+}
+// 触屏按下即起定时器；位移 > 5px（dragMoved）或抬起即取消
+canvas.addEventListener('pointerdown', e => {
+  if (!_isTouchPointer(e)) return;
+  _touchHoldFired = false;
+  _touchHoldCancel();
+  const sx = e.clientX, sy = e.clientY;
+  _touchHoldTimer = setTimeout(() => {
+    _touchHoldTimer = null;
+    if (dragMoved) return;                    // 变成拖拽 → 不是长按
+    const id = pickBranch({clientX:sx, clientY:sy});
+    if (id !== null && launchBranch(id)){
+      _touchHoldFired = true;                 // 出发成功，抑制紧随的 click
+      if (navigator.vibrate) try { navigator.vibrate(18); } catch(_){}
+    }
+  }, TOUCH_HOLD_MS);
+}, true);   // capture：在 endDrag 冒泡清理之前先拿到
+canvas.addEventListener('pointermove', e => { if (_isTouchPointer(e) && dragMoved) _touchHoldCancel(); }, true);
+canvas.addEventListener('pointerup', e => { if (_isTouchPointer(e)) _touchHoldCancel(); }, true);
+canvas.addEventListener('pointercancel', e => { if (_isTouchPointer(e)) _touchHoldCancel(); }, true);
 
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
@@ -2418,6 +2576,8 @@ function focusBranch(id){
 let _clickTimer = null;
 canvas.addEventListener('click', e => {
   if (dragMoved) return;
+  // FI-09：触屏长按已触发出发 → 吞掉浏览器随后补发的 click（避免二次 focusBranch / 重复展开）
+  if (_touchHoldFired){ _touchHoldFired = false; return; }
   // v0.9.41：指纹环核心优先拾取（「现在」位置，与分支牌不重叠）。
   // 命中=展开核对面板；未命中且面板开着则收起，再走原有分支/风景/后视镜逻辑。
   const fp = pickFingerprint(e);
@@ -2472,35 +2632,39 @@ canvas.addEventListener('click', e => {
   }
 });
 
+/* ── FI-09：出发逻辑抽成公共函数，鼠标双击 / 触屏长按走同一条真实执行路径 ──
+   不新增完成信号、不动相机公式、不碰路牌几何与中断态——只是复用已有出发入口。
+   返回 true 表示确实触发了出发（供长按判定是否消费掉随后的 click）。 */
+function launchBranch(id){
+  if (id === null || id === undefined) return false;
+  if (id === -2) return false;   // 到达牌：单击看结果，不出发
+  if (id <= -3 && id >= -3 - _futureCandidates.length){
+    travelFuture(-id - 3);       // 未来路牌 = 走向这条路
+    return true;
+  }
+  if (id < 0) return false;      // 「现在」牌 / 已作废的旧未来牌不是出发点
+  focusBranch(id);
+  if (_currentMode === 'choice' || _currentMode === 'direct'){
+    startExecution(id);
+  } else {
+    // 顺序模式：还没出发时第 1 站 = 确认走完整条流程；其他站 = 只执行那一步（手动接管）
+    if (_seqStartFn && id === 0){ _seqStartFn(); }
+    else {
+      document.getElementById('seqStart')?.remove();
+      _seqStartFn = null;
+      startExecution(id, {mode:'sequential'});
+    }
+  }
+  return true;
+}
+
 /* ── 双击路牌：直接出发，不必回到文字卡片 ── */
 canvas.addEventListener('dblclick', e => {
   e.preventDefault();
   clearTimeout(_clickTimer);   // v0.9.50：双击出发时取消单击的延时 focusBranch——
   // 否则出发瞬间视线还被带向旧注视点，牌在点击窗口内漂移，第二击落空（实测第二轮双击不出发）。
   if (dragMoved) return;
-  const id = pickBranch(e);
-  if (id === null) return;
-  if (id === -2) return;   // 到达牌：单击看结果，双击不触发
-  if (id <= -3 && id >= -3 - _futureCandidates.length){
-    // 双击未来路牌 = 走向这条路（不再「看完即终点」）
-    travelFuture(-id - 3);
-    return;
-  }
-  if (id < 0) return;   // 到达牌 / 已作废的旧未来牌不是出发点
-  focusBranch(id);
-  if (_currentMode === 'choice' || _currentMode === 'direct'){
-    startExecution(id);
-  } else {
-    // 顺序模式：还没出发时双击第 1 站 = 确认走完整条流程；
-    // 双击其他站 = 只单独执行那一步（手动接管，暂停自动链）
-    if (_seqStartFn && id === 0){
-      _seqStartFn();
-    } else {
-      document.getElementById('seqStart')?.remove();
-      _seqStartFn = null;
-      startExecution(id, {mode:'sequential'});
-    }
-  }
+  launchBranch(pickBranch(e));
 });
 
 /* ── 后端连接 ── */
@@ -2630,7 +2794,7 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.50';
+const TL_VERSION = 'v0.9.52';
 const TL_SESSION_STARTED = new Date().toISOString();
 
 /* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
@@ -2683,6 +2847,49 @@ let _forecastTimer = null;   // 后台完整推演：延后触发，避免抢模
 let _forecastAbort = null;   // 用户出发后取消推演
 let _waitHintTimer = null;   // 等模型空闲时的轻提示
 let _llmBusy = null;   // 本地模型唯一 slot 是否被别的客户端占住
+
+/* ── FI-09：单槽等待感知 ──
+   发出 execute 到首个真实 token 之间，在任务条如实显示「等待推理槽 · 已等 Ns」，
+   秒级更新；首个 token / 执行收尾即撤下。纯呈现：不碰执行链 / 完成信号 / 账本。
+   600ms 展示宽限避免快模型一闪而过。 */
+const SLOT_WAIT_SHOW_MS = 600;
+let _slotWaitStart = 0;
+let _slotWaitTick = null;
+let _slotWaitActive = false;
+function startSlotWait(){
+  endSlotWait();
+  _slotWaitStart = performance.now();
+  _slotWaitActive = true;
+  // 宽限后仍未出首个 token 才挂出行（快模型不闪）
+  setTimeout(() => {
+    if (!_slotWaitActive) return;
+    const bar = document.getElementById('taskBar');
+    if (!bar) return;
+    let row = document.getElementById('slotWaitRow');
+    if (!row){
+      row = document.createElement('div');
+      row.id = 'slotWaitRow'; row.className = 'tb-wait';
+      row.innerHTML = '<span class="tw-dot"></span><span class="tw-label"></span><span class="tw-sec"></span>';
+      bar.insertBefore(row, bar.firstChild);
+    }
+    renderSlotWait();
+    clearInterval(_slotWaitTick);
+    _slotWaitTick = setInterval(renderSlotWait, 1000);
+  }, SLOT_WAIT_SHOW_MS);
+}
+function renderSlotWait(){
+  const row = document.getElementById('slotWaitRow');
+  if (!row || !_slotWaitActive) return;
+  const sec = Math.floor((performance.now() - _slotWaitStart) / 1000);
+  row.querySelector('.tw-label').textContent = L('等待推理槽');
+  row.querySelector('.tw-sec').textContent = L('已等') + ' ' + sec + 's';
+}
+function endSlotWait(){
+  _slotWaitActive = false;
+  if (_slotWaitTick){ clearInterval(_slotWaitTick); _slotWaitTick = null; }
+  const row = document.getElementById('slotWaitRow');
+  if (row) row.remove();
+}
 
 /* ── v0.9.15 推演凭据（P1 真实性 / P2 可核对）──────────────────────
    执行链已改真，但推演层仍会静默用本地关键词模板冒充模型结果：
@@ -2739,6 +2946,7 @@ function setProof(scope, kind, meta){
     candidates: Array.isArray(meta?.candidates) ? meta.candidates : [],
     fork_count: Number.isFinite(meta?.fork_count) ? meta.fork_count : null,
     cost_ms: Number.isFinite(meta?.cost_ms) ? meta.cost_ms : null,
+    refined: meta?.refined === true,   // FI-03：标记该凭据经后台完整推演升级（可核对，非伪装）
     source: meta?.source || (k === 'offline' ? 'offline' : k),
     at: Date.now(),
   };
@@ -2785,15 +2993,15 @@ function renderProof(){
   bar.className = cls + (bar.classList.contains('open') ? ' open' : '');
   const badge = document.getElementById('pfBadge');
   badge.className = K ? K.cls : '';
-  badge.textContent = K ? K.badge : '等待推演';
+  badge.textContent = K ? L(K.badge) : L('等待推演');
   document.getElementById('pfDot').style.background =
     fallbackSeen ? '#ffb13d' : (K ? (K.cls === 'src-llm' ? '#34f5a0' : '#4fa8ff') : '#6a7da8');
 
   // 两批来源并列，避免「一批真、一批兜底」时被含糊掉
   const scopeTxt = ['branch','future'].map(s => {
     const p = _proof[s]; if (!p) return null;
-    const label = s === 'branch' ? '当前岔路' : '下一方向';
-    return `${label}：${PROOF_KIND[p.kind].tag}`;
+    const label = L(s === 'branch' ? '当前岔路' : '下一方向');
+    return `${label}：${L(PROOF_KIND[p.kind].tag)}`;
   }).filter(Boolean).join('　|　');
   document.getElementById('pfScope').textContent = scopeTxt || '—';
   document.getElementById('pfSource').textContent = K ? K.label : '—';
@@ -7325,6 +7533,7 @@ function startExecution(idx, opts={}){
     steps:(c.steps || []).slice(0, 4),   // 前瞻拆的步骤，执行时真正用上
     task_kind: (_forceComposeNext ? 'compose' : undefined),
   });
+  startSlotWait();   // FI-09：已发 execute，等首个真实 token 期间如实显示等待推理槽
   _forceComposeNext = false;
   // 顺序流程每站都有卡片高亮 + 任务条，不再逐站弹 toast 刷屏
   if (execInfo.mode !== 'sequential') showToast('出发：' + c.label, c.color);
@@ -7455,6 +7664,52 @@ function buildExploreContext(doneLabel, doneSteps){
     + ' —— 已经沿这条路走了一段，结合用户本来的问题，下一步还可能做什么？(不要推荐已经完成过的步骤。)';
 }
 
+/* FI-03（v0.9.51）：探索环的「学科 1」补链——fast 本地牌先立住，模型槽空闲时
+   后台完整推演一次，回来后把未来牌升级成真正扎根会话的模型方向并如实换标。
+   设计纪律：
+   - 绝不阻塞 fast 立牌（用户秒级看到方向），精修纯后台；
+   - 绝不冒充：升级前 source=local 诚实地标着，升级后才换成 llm 标；
+   - 作废判据与 fast 同源（token / 执行中 / 已选路），陈旧结果只丢弃不清场；
+   - 不动相机/机位/轨道/到达牌，只换候选牌面 + future 凭据。*/
+function _refineFutureWithLLM(ctx, token, arrivalPos, doneLabel, travelled, startedAt){
+  const nowActive = () => !(
+    execInfo.done === false || activeBranch >= 0 ||
+    token !== _futureToken || !document.getElementById('scene')
+  );
+  // 轮询等模型槽空闲（单槽 parallel=1，忙时不抢、避免把 execute 挤出队）
+  const tryWhenIdle = () => {
+    if (!nowActive()){ _futureRefineActive = false; return; }
+    if (Date.now() - (startedAt || Date.now()) > FUTURE_REFINE_MAX_MS){
+      _futureRefineActive = false;
+      showToast('模型一直忙，下一方向暂用本地推演', '#ffb13d');
+      return;
+    }
+    if (_llmBusy === true){
+      _futureRefineTimer = setTimeout(tryWhenIdle, FUTURE_REFINE_WAIT_MS);
+      return;
+    }
+    // 槽位空闲（含 null=未探到，仍尝试；后端会如实返回 source）
+    _futureRefineActive = true;
+    fetch(`/api/forecast?context=${encodeURIComponent(ctx)}&k=5`)
+      .then(r => r.json())
+      .then(res => {
+        _futureRefineActive = false;
+        if (!nowActive()) return;        // 用户已选路/新推演/进入执行 → 作废，只丢弃不清场
+        const fk = proofKindOf(res);
+        if (fk !== 'llm') return;        // 模型未真正参与（offline/local）→ 保留本地牌，不打扰
+        const cs = (res.candidates || []).slice(0, 6)
+          .filter(c => !alreadyDone(c.label, travelled));
+        if (!cs.length) return;
+        _futureCandidates = cs.slice(0, 5);
+        setProof('future', 'llm', { ...res, candidates: _futureCandidates, refined: true });
+        drawFutureSigns(arrivalPos);     // 内部先 clearFutureSigns：连旧本地牌一起换掉
+        showToast('已用模型精修 ' + _futureCandidates.length + ' 个下一方向', '#5ee0ff');
+      })
+      .catch(() => { _futureRefineActive = false; /* 后台失败静默：本地牌仍然有效 */ });
+  };
+  _futureRefineTimer = setTimeout(tryWhenIdle, FUTURE_REFINE_WAIT_MS);
+}
+
 function autoExploreNext(arrivalPos, doneLabel, doneSteps){
   clearFutureSigns();
   _futureCandidates = [];
@@ -7469,6 +7724,9 @@ function autoExploreNext(arrivalPos, doneLabel, doneSteps){
   // 若随后走了本地兜底，这句话就成了凭空宣告模型在思考（P1 剧场）。
   paintPendingSign(arrivalPos, '正在推演下一方向', '稍后一次铺出可能的出口');
   showToast('正在推演下一方向…', '#8a9bbf');
+  // FI-03：新一轮推演开始，取消上一轮可能仍在排队的后台精修（避免旧精修晚到污染新牌）。
+  if (_futureRefineTimer){ clearTimeout(_futureRefineTimer); _futureRefineTimer = null; }
+  _futureRefineActive = false;
   const token = ++_futureToken;        // 本次推演令牌：期间若又触发新推演，本次结果作废
 
   // 下一方向推演走 fast 本地通道（&fast=1 → 后端 bool(1)=True → force_local 纯本地实例）：
@@ -7500,6 +7758,8 @@ function autoExploreNext(arrivalPos, doneLabel, doneSteps){
           ? `模型推演出 ${_futureCandidates.length} 个下一方向`
           : `模型未参与 · ${_futureCandidates.length} 个方向来自本地兜底模板`;
         showToast(honest, fk === 'llm' ? (_futureCandidates[0].color || '#5ee0ff') : '#ffb13d');
+        // FI-03：fast 只给本地预览时，排队后台完整推演；本轮作废判据随 token 传递。
+        if (fk !== 'llm') _refineFutureWithLLM(ctx, token, arrivalPos, doneLabel, travelled, Date.now());
       } else {
         clearFutureSigns();
         setProof('future', 'offline', { candidates: [] });
@@ -7587,6 +7847,7 @@ function finishExecution(ok, note='', detail={}){
   execInfo.done = true;
   clearTimeout(execTimer); execTimer = null;
   clearTimeout(_waitHintTimer); _waitHintTimer = null;
+  endSlotWait();   // FI-09：执行收尾（含中断/失败）一律撤下等待推理槽提示
   clearExecUI();
   setThinking(false);
   fadeTaskWidgets();
@@ -7925,7 +8186,9 @@ function onToken(msg){
     if (_execDrive && !_execDrive.done){ _execDrive.chars = 0; _execDrive.target = 0; _execDrive.p = Math.min(_execDrive.p, 0.05); }
     return;
   }
+  const _firstToken = _streamText.length === 0 && !!(msg.text || '');
   _streamText += (msg.text || '');
+  if (_firstToken) endSlotWait();   // FI-09：首个真实 token = 推理槽已开始产出，撤下等待提示
   execDriveOnToken(_streamText.length);   // FI-01：真实字数 = 巡航信号
   if (!_streamRenderTimer){
     _streamRenderTimer = setTimeout(() => { _streamRenderTimer = null; renderStreamNow(); }, 100);
@@ -8726,6 +8989,23 @@ init();
     get progressHudText() { return document.getElementById('progressHud')?.textContent || ''; },
     get progressHudBusy() { return document.getElementById('progressHud')?.classList.contains('is-busy') || false; },
     get progressHudClass() { return document.getElementById('progressHud')?.className || ''; },
+    // FI-09 测试钩子：触屏通道 + 单槽等待感知
+    get isTouchDevice() { return window.__isTouchDevice ? window.__isTouchDevice() : false; },
+    setTouchDeviceForTest(v) { return window.__setTouchDeviceOverride ? window.__setTouchDeviceOverride(v) : false; },
+    get slotWaitState() {
+      const row = document.getElementById('slotWaitRow');
+      return { active: _slotWaitActive, visible: !!row && getComputedStyle(row).display !== 'none',
+               text: row ? row.textContent.replace(/\s+/g,' ').trim() : '',
+               seconds: _slotWaitActive ? Math.floor((performance.now()-_slotWaitStart)/1000) : -1 };
+    },
+    startSlotWaitForTest() { startSlotWait(); return true; },
+    endSlotWaitForTest() { endSlotWait(); return true; },
+    launchBranchForTest(id) { return !!launchBranch(id); },
+    // 直接驱动触屏长按路径（capture 阶段那套绑定难以在单元测试里稳定派发 touch 事件）
+    touchLongPressAtForTest(clientX, clientY) {
+      const id = pickBranch({clientX, clientY});
+      return { picked: id, launched: id !== null ? !!launchBranch(id) : false };
+    },
     get decisionChainOpen() { return document.getElementById('decisionChain')?.classList.contains('show') || false; },
     get decisionNodeCount() { return document.querySelectorAll('#dcList .dc-node').length; },
     get decisionCountText() { return document.getElementById('dcCount')?.textContent || ''; },
@@ -8750,6 +9030,7 @@ init();
                      arrivalDetail: d, arrivalMarker: null, tubes: [], mirrorOrb: null });
       _arrivalResults.set(-2, d);
       execInfo = {idx:-1, label:'', mode:_currentMode, done:true};   // 复位执行态，HUD 反映「已到达」
+      endSlotWait();   // FI-09：搭景复位执行态时同步撤下等待推理槽行（与真实收尾一致）
       updateProgressHud();
       rebuildMilestones();
       recordRun(d, 'done');
@@ -8821,6 +9102,19 @@ init();
     // 测试钩子：触发一次真实的「下一方向」推演链路（可配合 fetch mock
     // 验证后端返回 source=local 时未来牌是否如实标成兜底）
     _exploreNext(pos, label, steps){ autoExploreNext(pos || [8,0,8], label || '先查资料', steps || []); },
+    // FI-03 回归钩子：驱动/观测探索环后台精修（不改生产逻辑，只读状态 + 显式触发）
+    _refineFutureNow(ctx, token, pos, label, steps){
+      const t = Number.isInteger(token) ? token : _futureToken;
+      _refineFutureWithLLM(ctx || '测试上下文', t, pos || [8,0,8], label || '完成', steps || [], Date.now());
+      return { token: t, timerSet: !!_futureRefineTimer };
+    },
+    get futureRefineState(){
+      return { active: _futureRefineActive, timerSet: !!_futureRefineTimer,
+               proof: (_proof.future || {}).kind || null,
+               token: _futureToken,
+               candidates: _futureCandidates.map(c => c && c.label).filter(Boolean) };
+    },
+    _cancelFutureRefine(){ if (_futureRefineTimer){ clearTimeout(_futureRefineTimer); _futureRefineTimer = null; } _futureRefineActive = false; return true; },
     THREE, camera, canvas, resetCamera, clearBranches,
     applyForecastResultForTest(msg){ applyForecastResult(msg || {}); return true; },  // v0.9.49 回归：推演重铺不抹到达牌
     // v0.9.49 回归：把相机直接落到「到达停靠态」（与 driveTo arrivalDock 落位参数一致），

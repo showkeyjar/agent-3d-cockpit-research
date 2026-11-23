@@ -1,4 +1,8 @@
 const { resolveChromePath } = require('./chrome_helper');
+// ⚠️ 既有 flake 基线（2026-11-23 对照确认，非产品回归）：C4 在 _stubWs(true) 下稳定 21/22，
+//    失败项 C4 读到 done=true,idx=-1。用远端纯 FI-01 版 index.html（无任何本地修复）跑同样
+//    21/22、同错误值——桩 WS 下 B 段 _endExec 与 C 段 travelFuture 的状态竞态，两版共有。
+//    去掉桩 WS 时 C after kbGo 正确 done=false。判回归前先做此基线对照，勿当产品 bug。
 /* test_keyboard.js — v0.9.19 P2：键盘等价视图（全键盘可达）
  *
  * 验证目标：

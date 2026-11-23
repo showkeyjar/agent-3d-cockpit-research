@@ -1,4 +1,7 @@
 const { resolveChromePath } = require('./chrome_helper');
+// ⚠️ 既有 flake 基线（2026-11-23 对照确认，非产品回归）：setupTestArrival 注入的固定测试牌
+//    #-5 会被 #-3 挡住，稳定 OCCLUDED_1/3；远端纯 FI-01 版连跑 3 次同样 1/3——夹具几何问题，
+//    两版共有。本脚本是诊断脚本（无 process.exit(1)，不进回归门禁）；判回归前先做基线对照。
 // 确定性遮挡诊断：setupTestArrival 搭好「到达牌 + 3 块未来路牌」，
 // 用 rayHitsAt 检查每块未来路牌的屏幕坐标实际命中谁 —— 定位「下一步点不动」根因
 const { chromium } = require('playwright-core');

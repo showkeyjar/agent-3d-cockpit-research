@@ -1,4 +1,7 @@
 const { resolveChromePath } = require('./chrome_helper');
+// ⚠️ 已知环境项（FIELD-ISSUES/远端 CHANGELOG 均记录）：小模型（gemma3:1b）+ 无头环境下
+//    「到达/未来牌投影不稳定」软观察项、顺序链拆分质量不足，基线 stash 对照同样失败，
+//    不具判定力、不进回归门禁；判回归前做基线对照。
 // 真实端到端：提问 → 双击第0站 → 完整顺序链 → 点击到达牌 → 点击未来路牌
 const { chromium } = require('playwright-core');
 const CHROME = resolveChromePath();

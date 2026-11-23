@@ -7,6 +7,52 @@
 
 ---
 
+## v0.9.52 · 2026-11-23 · FI-03 探索环模型精修 + FI-08 核心界面 i18n + FI-09 触屏/等待感知 + 文档口径/测试 flake 诚实化
+
+本批为 2026-11-23 系统性审查后的完善批次。审查用真实回归 + 对照实验定位问题，
+区分「合并回归 / 既有 flake / 真缺口」，不把既有 flake 误当产品 bug 修。
+
+- **★ FI-03 探索环异步模型精修（P0 功能缺口，本批主改动）**：`autoExploreNext()` 过去写死
+  `&fast=1` → `force_local` 纯关键词模板（`source=local`），「下一方向」永远不问模型，
+  学科 1 在探索环缺席。本版保留 fast 秒级立牌（用户立即看到方向、诚实标 local），
+  新增 `_refineFutureWithLLM()` 后台精修：轮询等模型槽空闲（`_llmBusy`）→ 发完整推演
+  （无 fast 参数）→ 仅当本轮仍有效（token 未变 / 未在执行的作废判据）才升级牌面并换标
+  `source=llm` + `refined:true`；失败/忙/非 llm 静默保留本地牌、不打扰用户。
+  `setProof()` 增 `refined` 可核对字段。不动相机/机位/轨道/到达牌/执行链/账本/中断态。
+  作废的陈旧结果只丢弃不清场（沿用既有竞态纪律）。新回归 `test_future_refine.js` 10/10：
+  fast 先立本地牌→精修升级 llm、作废判据、offline 不冒充、0 JS 错误。
+  **注意**：主推演链路（提问铺牌）早有 2500ms 窗口的完整推演升级（test_ux_fixes8 D 段），
+  本版只补探索环这一处缺口；两处精修靠 `_journeyTouched` 互斥、不抢单槽。
+- **FI-08 核心界面 i18n（P2 体验）**：UI 文案层字典 `?lang=en|zh` + `navigator.language`
+  探测，默认中文零回退。覆盖 HUD 标题/按钮/状态词/模型面板/凭据徽章/高频提示（约 70 key），
+  `t(key)` 取词 + `L(zh原文)` 动态包装（未命中原样返回）+ `data-i18n`/`-title`/`-ph` 静态节点。
+  **路牌 label/steps 与产物正文来自模型、随提示词语言走，不在字典范围**（GLOSSARY 口径）。
+  中文模式 applyI18n 直接 return，零回退风险；A/B/B0/B1/C/B2 实验操纵一致性保持。
+  新回归 `test_i18n.js` 19/19：默认中文零改动 / en 切换 / zh 一致 / 缺 key 零回退 / 凭据徽章 /
+  3D-账本-执行钩子仍在。
+- **FI-09 体验层两小项（P2，本批补齐 → FIELD-ISSUES 9 项全关）**：
+  ① **触屏等价通道**：抽出 `launchBranch(id)` 作公共出发入口（鼠标双击 / 触屏长按共用同一
+  真实执行路径），触屏以 `pointerType==='touch'` + 长按 520ms 作 dblclick 的等价手势
+  （触屏浏览器不可靠派发 dblclick），轻点仍走原 click（选中/看结果/后视镜/指纹环），
+  长按出发后吞掉补发 click 防重复；触屏设备按 `ontouchstart`/`maxTouchPoints` 显示操作
+  提示行（i18n 词典化）。鼠标行为零变化。
+  ② **单槽等待感知**：发出 execute 到首个真实 token 之间在任务条显示「等待推理槽 · 已等 Ns」，
+  秒级更新（600ms 宽限避免快模型闪烁），首 token / 收尾 / 搭景复位即撤下；纯呈现，
+  不碰执行链/完成信号/账本/相机。新回归 `test_fi09.js` 22/22。
+- **文档诚实化**：`docs/FIELD-ISSUES.md` 总评原写于 v0.9.49.2 基线、把已修的 FI-01/FI-02
+  仍当未修（自相矛盾）——加「状态更新」注，拆「当时口径/当前口径」；FI-03/08/09 修复说明
+  回写、状态行更新为「9 项全部关闭」，剩余均为研究层缺口（M2 真人数据）；复现口径同步更新。
+- **测试 flake 基线标注**：5 处既有 flake 补对照注释——keyboard C4（桩 WS 下远端纯版同样
+  21/22）、occlusion（固定测试牌 #-5 被 #-3 挡，远端纯版 3/3 同样 OCCLUDED_1/3）、
+  timeline_llm（偶发、重跑 8/8）、test_e2e/seq（小模型不具判定力）、ux_fixes5 C 段
+  （DOM 吃点击、基线同样）。均经 A/B 对照确认非产品回归，让「全绿」可引用。
+- **回归**：fi09 22/22、future_refine 10/10、i18n 19/19、exec_drive 36/36、terminal 19/19、
+  tree_fork 17/17、arrival_persist 13/13、ux_fixes8 29/0、test_click / timeline_llm 通过；
+  future_travel/ux_fixes8 曾经的 1 项 FAIL 经基线对照确认为既有（两版同，非本批引入）。
+  后端 FI-02 16/16、WS 14/14、cancel 16/16 全过。相机公式/路牌几何/中断态/实验操纵零改动。
+
+---
+
 ## v0.9.50 · 2026-11-22 · FI-01 事件驱动执行行驶：「行驶」不再是完成后的过场动画
 
 来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) FI-01（🔴 愿景级）。

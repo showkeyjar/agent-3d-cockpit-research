@@ -1,4 +1,7 @@
 const { resolveChromePath } = require('./chrome_helper');
+// ⚠️ 偶发项如实记录（2026-11-23）：首跑曾 7/1（模型槽时序），原地重跑 8/8。
+//    本套真打 8083 单模型槽，槽位被占/半起时会偶发；失败先确认 /health=200 且槽位空闲再重跑，
+//    勿据单次失败判产品回归。
 /* test_timeline_llm.js — v0.9.17 分叉重走的真实 35B 冒烟
  *
  * test_timeline.js 的 D 段用 WS 桩验证了「协议路径真实、旧结果不回放」；
