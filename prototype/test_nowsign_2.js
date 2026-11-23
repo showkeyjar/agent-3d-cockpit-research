@@ -1,5 +1,9 @@
 const { resolveChromePath } = require('./chrome_helper');
 // 复现用户观感：A=行驶中「现在」牌隐藏时序；B=行驶中触发新一轮推演重建（autoExplore 竞态）；C=结果卡强调样式
+// ⚠️ 既有 flake 基线（2026-11-23 对照确认，非产品回归）：D 段「未淡出的路牌保持可见」失败
+//    （notFaded=-3/-4/-5 op=0,vis=false）。用 HEAD 基线版 index.html（无 v0.9.53 静默改动）
+//    连跑 2 次同样失败且更糟（3 项 FAIL），v0.9.53 版仅 1 项——夹具的 _fadedPast/投影分类
+//    随未来牌重建时序摇摆（测试内注释亦承认），属既有问题，判回归前先做基线对照。
 const { chromium } = require('playwright-core');
 const CHROME = resolveChromePath();
 
@@ -91,8 +95,10 @@ async function main() {
       badgeAnim: getComputedStyle(document.querySelector('#resultCard .rc-badge')).animationName,
     };
   });
-  check('C finishExecution 行驶结束弹结果卡 + rcLongPulse', rc.show && rc.anim.includes('rcLongPulse'), JSON.stringify(rc));
-  check('C 徽章 rcBadge 呼吸', rc.badgeAnim.includes('rcBadge'), JSON.stringify(rc));
+  // v0.9.53：去掉持续呼吸——结果卡仍弹（一次性 rcIn），但不再有 rcLongPulse/rcBadge infinite。
+  check('C finishExecution 行驶结束弹结果卡 + 一次性 rcIn', rc.show && rc.anim.includes('rcIn'), JSON.stringify(rc));
+  check('C 结果卡无 rcLongPulse 长脉冲', !rc.anim.includes('rcLongPulse'), JSON.stringify(rc));
+  check('C 徽章无 rcBadge 呼吸', !rc.badgeAnim.includes('rcBadge'), JSON.stringify(rc));
 
   // ── D：v0.9.11.5「现在」移到底部 DOM 状态条 + 驶过节点淡出（后视镜语义）
   // A/B 验了 visible 时序；本轮用户两条新诉求：

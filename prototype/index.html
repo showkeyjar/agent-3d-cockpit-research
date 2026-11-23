@@ -23,8 +23,10 @@
     display:flex;align-items:center;gap:8px;pointer-events:none;z-index:10;
     background:rgba(8,12,28,0.4);padding:6px 18px;border-radius:20px;
     backdrop-filter:blur(15px);border:1px solid var(--border);}
+  /* v0.9.53：标题栏装饰点改静态（原 pulse 2s infinite 是纯装饰呼吸）。
+     @keyframes pulse 保留——任务条「执行中/等槽」状态点仍用它表达真实状态。 */
   #headbar .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);
-    box-shadow:0 0 8px var(--cyan);animation:pulse 2s infinite;}
+    box-shadow:0 0 8px var(--cyan);}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
   #headbar b{font-size:13px;letter-spacing:.5px;}
   #headbar span{font-size:9px;color:var(--muted);margin-left:4px;}
@@ -86,26 +88,19 @@
   #directHint{text-align:center;color:var(--muted);font-size:12px;padding:16px;}
 
   /* 执行结果卡片：走完一条路之后的明确交代 ────────────── */
-  /* 完成感知设计原则：完成时不仅要"出现"，还要"被注意到"——
-     打嗝之后安静是失败的设计；脉冲的余韵要撑足 8 秒，
-     徽章持续轻呼吸，标题强调。用户盯 3D 动画时，靠卡片自身的光活拉视线。 */
+  /* v0.9.53：去掉所有 infinite 持续呼吸/脉冲（用户反馈「影响思考的呼吸浮动」）。
+     结果出现仍可感知——靠一次性入场动画 + 静态绿边框/标题高亮，不靠永久发光。
+     「打嗝之后安静是失败设计」的字面结论已让位于「静止才利于阅读」的实测体验。 */
   #resultCard{display:none;flex:none;border-radius:12px;padding:0;overflow:hidden;
     border:1px solid rgba(52,245,160,.6);background:rgba(10,20,26,.86);
     backdrop-filter:blur(20px);box-shadow:0 8px 34px rgba(0,0,0,.5);}
-  /* 顶部高亮条：结果卡的"已完成"身份，一屏之内先看它 */
+  /* 顶部高亮条：静态常亮，标记结果卡身份（去掉 rcTop 呼吸） */
   #resultCard::before{content:'';display:none;position:absolute;top:0;left:0;right:0;height:3px;
     background:linear-gradient(90deg,var(--green),rgba(52,245,160,.1));z-index:2;}
   #resultCard.show{position:relative;display:block;
-    animation:rcIn .32s cubic-bezier(.2,.8,.3,1),rcLongPulse 8s ease-out;}
-  #resultCard.show::before{display:block;animation:rcTop 2.6s ease-in-out infinite;}
-  @keyframes rcTop{0%,100%{opacity:.45}50%{opacity:1}}
-  /* 长脉冲：强脉冲在前 40% 逐渐消退，后段保持微弱余晖到 8s ——
-     静默的卡片等于没有卡片，驾驶舱里所有静态装饰都不被"看见"。 */
-  @keyframes rcLongPulse{
-    0%{box-shadow:0 8px 34px rgba(0,0,0,.5),0 0 56px rgba(52,245,160,.6);}
-    20%{box-shadow:0 8px 34px rgba(0,0,0,.5),0 0 64px rgba(52,245,160,.48);}
-    100%{box-shadow:0 8px 34px rgba(0,0,0,.5);}
-  }
+    animation:rcIn .32s cubic-bezier(.2,.8,.3,1);}
+  #resultCard.show::before{display:block;opacity:.8;}
+  /* 保留一次性入场动画 rcIn（0.32s）——「出现」的必要告知，非持续炫酷。 */
   #resultCard.fail{border-color:rgba(255,177,61,.45);}
   @keyframes rcIn{from{opacity:0;transform:translateY(-10px) scale(.98)}to{opacity:1;transform:none}}
   .rc-head{display:flex;align-items:center;gap:10px;padding:12px 14px;
@@ -117,17 +112,8 @@
     box-shadow:0 0 0 3px rgba(52,245,160,.18),0 0 18px rgba(52,245,160,.5);}
   #resultCard.fail .rc-badge{background:var(--orange);color:#1a1002;
     box-shadow:0 0 0 3px rgba(255,177,61,.18),0 0 18px rgba(255,177,61,.5);}
-  /* 完成徽章轻度呼吸：不打扰，但视线扫过来时能被它抓住 */
-  #resultCard.show .rc-badge{animation:rcBadge 2.4s ease-in-out infinite;}
-  @keyframes rcBadge{
-    0%,100%{box-shadow:0 0 0 0 rgba(52,245,160,.5);}
-    50%{box-shadow:0 0 12px 3px rgba(52,245,160,.55);}
-  }
-  #resultCard.fail.show .rc-badge{animation-name:rcBadgeWarn;}
-  @keyframes rcBadgeWarn{
-    0%,100%{box-shadow:0 0 0 0 rgba(255,177,61,.5);}
-    50%{box-shadow:0 0 12px 3px rgba(255,177,61,.55);}
-  }
+  /* v0.9.53：完成徽章静态高亮（去掉 rcBadge / rcBadgeWarn 无限呼吸），
+     绿/橙底 + 静态光晕已足够标识成功/失败，无需持续发光。 */
   .rc-htext{flex:1;min-width:0;}
   .rc-h1{font-size:16px;font-weight:800;letter-spacing:.4px;color:#eafff6;
     text-shadow:0 0 14px rgba(52,245,160,.45);}
@@ -194,11 +180,7 @@
   #resultCard.clarify .rc-head{background:linear-gradient(90deg,rgba(94,224,255,.16),transparent);}
   #resultCard.clarify .rc-badge{background:var(--cyan);color:#03121a;
     box-shadow:0 0 0 3px rgba(94,224,255,.18),0 0 18px rgba(94,224,255,.5);}
-  #resultCard.clarify.show .rc-badge{animation:rcBadgeCyan 2.4s ease-in-out infinite;}
-  @keyframes rcBadgeCyan{
-    0%,100%{box-shadow:0 0 0 0 rgba(94,224,255,.5);}
-    50%{box-shadow:0 0 12px 3px rgba(94,224,255,.55);}
-  }
+  /* v0.9.53：clarify 卡徽章去掉 rcBadgeCyan 无限呼吸（静态青色高亮已足够标识） */
   #resultCard.clarify .rc-h1{color:#bff4ff;text-shadow:0 0 14px rgba(94,224,255,.45);}
   #resultCard.clarify .rc-out{
     background:linear-gradient(180deg,rgba(94,224,255,.10),rgba(94,224,255,.04));
@@ -507,8 +489,9 @@
     color:#cfe4ff;font-size:12px;transition:opacity .3s,transform .3s;}
   #nowBar.show{opacity:1;}
   #nowBar .nb-line{display:flex;align-items:center;}
+  /* v0.9.53：现在点静态（去掉纯装饰 pulse；现在位置由文字与位置本身表达） */
   #nowBar .nb-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);
-    box-shadow:0 0 8px var(--cyan);animation:pulse 2s infinite;margin-right:7px;flex:none;}
+    box-shadow:0 0 8px var(--cyan);margin-right:7px;flex:none;}
   #nowBar .nb-main{font-weight:600;font-size:11px;letter-spacing:.5px;white-space:nowrap;}
   #nowBar .nb-sub{font-size:10px;color:var(--muted);line-height:1.4;}
   #nowBar.hide{opacity:0;transform:translateY(8px);}
@@ -2794,7 +2777,7 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.52';
+const TL_VERSION = 'v0.9.53';
 const TL_SESSION_STARTED = new Date().toISOString();
 
 /* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
@@ -8418,13 +8401,9 @@ function animate(){
   _camLook.copy(cam.focus).add(cam.pan);
   camera.lookAt(_camLook);
 
-  // F3.6b 行驶微颠簸：行驶时相机轻微上下起伏（车身颠簸），速度越快振幅越大。
-  //   这是真实驾驶的身体感受——速度感不只来自视觉，也来自体感。停止时消失。
-  if (isDriving){
-    const bob = _speedScale * 0.05;
-    camera.position.y += Math.sin(t * 18) * bob + Math.sin(t * 7.3) * bob * 0.4;
-  }
-
+  // v0.9.53：移除 F3.6b 行驶相机颠簸（camera.y += sin(t*18)*bob）。
+  //   用户 2026-11-23 反馈「不需要抖动、重视体验而非炫酷」——该体感颠簸是纯装饰，
+  //   还是 test_rail_camera 偶发失败的根因（行驶最后一帧残留 sin 位移）。落位静止不变量不变。
   // ── F3.6 视野体验：行驶层次 / 速度感 / 到达反馈 ─────────────────
   // F3.6a 地面网格流动：行驶时网格沿行驶方向滚动，速度与 _speedScale 挂钩。
   //   流动幅度 = 行驶速度 × dt × 系数；停止时不流动。
@@ -8535,7 +8514,7 @@ function animate(){
   // 语义风景层：与星空同属「风景层」，行驶时淡出聚焦主干、落位后淡入（诚实近似的上下文向量场）
   if (sceneryPoints && sceneryPoints.material){
     sceneryPoints.material.opacity = 0.4 * _scenicCur;
-    sceneryPoints.rotation.y += dt * 0.02;
+    // v0.9.53：移除点云缓慢自转（装饰性持续运动，静止才利于阅读，落位不变量不变）
   }
   // 概念图卡（语义风景主体）：随风景层逐帧淡入/淡出——行驶聚焦主干、落位后供探索
   for (let i = 0; i < _scnSprites.length; i++){
@@ -8544,25 +8523,11 @@ function animate(){
   // 光柱已移除：卡↔牌的联动改由到达牌自身的 arrivalGlow 脉冲表达（见下方 branchSigns 循环），
   // 它随「结果卡是否打开」变化，是交互状态反馈，而不是静态「有结果」标记。
 
-  // 载具动画
+  // v0.9.53：载具随位移前进（保留 FI-01 行驶语义），但移除环绕光带的空转——
+  //   静止停在结果处时不再有「永动机」式旋转分散注意力。
   agent.position.copy(currentPos);
-  aRing1.rotation.z += dt * 2; aRing1.rotation.x += dt * 0.6;
-  aRing2.rotation.z -= dt * 1.5; aRing2.rotation.y += dt * 1;
-  aCore.rotation.x += dt * 0.8; aCore.rotation.y += dt * 1.2;
 
-  // 枢纽节点动画
-  if (hubNode){
-    hubNode.userData.ring.rotation.z += dt * 0.5;
-    const pulse = Math.sin(t * 2) * 0.1 + 1;
-    hubNode.userData.core.scale.set(pulse, pulse, pulse);
-  }
-
-  // 选中分支节点脉冲
-  if (activeBranch >= 0 && branchNodeMeshes[activeBranch]){
-    const pulse = Math.sin(t * 3) * 0.15 + 1;
-    branchNodeMeshes[activeBranch].scale.set(pulse, pulse, pulse);
-    branchNodeMeshes[activeBranch].userData.core.material.emissiveIntensity = 0.4 + Math.sin(t * 3) * 0.2;
-  }
+  // v0.9.53：枢纽节点 / 选中分支节点的呼吸脉冲移除（纯装饰，选中态由颜色/高亮静态表达）。
 
   // 「现在」牌：v0.9.11.5 已改为底部 DOM 状态条，不再有 3D 插件（不再占用视野）。
   // 行驶期间驶过节点的路牌会淡出——分界环（nowMarker）仍在地面上标记当前位置。
@@ -8585,30 +8550,25 @@ function animate(){
       }
     }
     if (s.userData.plane && s.visible) s.userData.plane.lookAt(camera.position);
-    // v0.9.11.8：到达结果牌的醒目动画——光晕脉冲呼吸 + 徽章浮动呼吸缩放，
-    // 用户停在岔口或游离观察时，这块牌"自己做动静"把视线拉过来，而不是干等用户发现。
+    // v0.9.53：到达牌光晕/徽章改为静态（原「自己做动静把视线拉过来」的呼吸浮动已移除）——
+    //   结果出现由「牌落地动画 + 结果卡一次性入场 + 静态绿高亮」告知，静止状态更利于阅读。
     if (!s.visible) return;
     const st = s.userData;
     if (st.arrivalGlow){
-      const pulse = Math.abs(Math.sin(t * 2.4));   // 半波：0→1→0，光晕只亮不灭
-      // v0.9.12：reactK=点击/到达广播的即时弹跳系数，叠加在持续呼吸之上
+      // v0.9.53：移除半波 sin 持续呼吸（0.16+pulse*0.3）——静止看结果时不再有光晕忽明忽暗。
+      //   保留两项有信息的反馈：reactK=点击/到达的即时弹跳回执；gk=近距衰减防绿光斑。
       const rk = st.reactK || 0;
-      // v0.9.50：近距衰减——停靠/拉近后机位距牌 ~3.4–5m，1.16×牌宽的光晕投影
-      // 数百像素、additive 叠成巨大绿光斑罩住结果牌（实测截图）。按距离压亮度。
       const gd = camera.position.distanceTo(s.position);
-      // v0.9.50：近距衰减系数必须乘在脉冲公式里——animate 每帧重写 glow.opacity，
-      // updateCameraFade 对 glow 的淡出会被下一帧覆盖（实测巨大绿光斑长存）。
-      // 停靠 5m 处 additive 光晕仍叠成实心绿巨斑 → 5m 内全隐、8m 恢复。
       const gk = Math.max(0, Math.min(1, (gd - 5.0) / 3.0));
-      st.arrivalGlow.material.opacity = (0.16 + pulse * 0.3 + rk * 0.5) * gk;
-      st.arrivalGlow.scale.set(1 + pulse*0.04 + rk*0.12, 1 + pulse*0.04 + rk*0.12, 1);
+      st.arrivalGlow.material.opacity = (0.16 + rk * 0.5) * gk;
+      st.arrivalGlow.scale.set(1 + rk*0.12, 1 + rk*0.12, 1);
     }
     if (st.arrivalBadge){
-      const bob = Math.sin(t * 2.0);
-      st.arrivalBadge.position.y = st.badgeBaseY + bob * 0.18;
+      // v0.9.53：移除徽章上下浮动 + 呼吸缩放（sin(t)），徽章固定在 badgeBaseY。
+      //   保留点击即时回执 rk 与近距缩小 bk（v0.9.50 防绿球抢戏的修复不动）。
       const rk = st.reactK || 0;
-      const beat = Math.sin(t * 3.2) * 0.12 + 1 + rk * 0.6;
-      // v0.9.50：徽章球近距缩小（0.3m 球在 3–5m 处投影 ~80px 绿球抢戏）
+      st.arrivalBadge.position.y = st.badgeBaseY;
+      const beat = 1 + rk * 0.6;
       const bd = camera.position.distanceTo(s.position);
       const bk = Math.max(0, Math.min(1, (bd - 3.5) / 3.0));
       st.arrivalBadge.scale.set(beat * bk, beat * bk, beat * bk);
@@ -9324,6 +9284,20 @@ init();
     },
     _vehiclePos(){ return [Math.round(currentPos.x*10)/10, Math.round(currentPos.y*10)/10, Math.round(currentPos.z*10)/10]; },
     _camYaw(){ return cam.yaw; },
+    // v0.9.53：静止动效探针——验证「去掉抖动/呼吸浮动」落实。
+    //   返回相机 y、载具环旋转、到达牌徽章 y/光晕 opacity；静止态连续采样应恒定。
+    _motionState(){
+      const arr = branchSigns.filter(s => s.userData.branchId === -2);
+      const last = arr.length ? arr[arr.length - 1].userData : null;
+      return {
+        camY: Math.round(camera.position.y * 1e5) / 1e5,
+        ringRotZ: Math.round((aRing1 ? aRing1.rotation.z : 0) * 1e5) / 1e5,
+        badgeY: last && last.arrivalBadge
+          ? Math.round(last.arrivalBadge.position.y * 1e5) / 1e5 : null,
+        glowOp: last && last.arrivalGlow
+          ? Math.round(last.arrivalGlow.material.opacity * 1e5) / 1e5 : null,
+      };
+    },
     _gazeActive(){
       return { on: !!_gaze, t: _gaze ? Math.round(_gaze.t - performance.now()) : 0 };
     },

@@ -76,7 +76,9 @@ async function main() {
   check('行驶结束：相机对准目标（yaw≈45°）',
       yawOk, JSON.stringify(cw));
 
-  // ── 结果卡感知动画：注入 detail 并 show，检查 computed animation 名为 rcLongPulse、rcBadge ──
+  // ── 结果卡出现：v0.9.53 去掉持续呼吸/脉冲，只保留一次性入场 rcIn + 静态标识 ──
+  //  用户 2026-11-23 反馈「去掉影响思考的呼吸浮动」，故断言从「必须有 rcLongPulse/rcBadge」
+  //  反转为「不带任何 infinite 呼吸」：结果卡仍正常 show、入场仍有 rcIn（非炫酷的必要告知）。
   const anim = await page.evaluate(() => {
     const d = { ok: true, mode:'choice', label:'先查资料', title:'这一步做完了',
                 question:'分析国内电力交易市场格局', count:2, elapsed:'3.2s',
@@ -90,10 +92,12 @@ async function main() {
       badgeAnim: getComputedStyle(document.querySelector('#resultCard .rc-badge')).animationName,
     };
   });
-  check('结果卡 show + rcLongPulse 长脉冲',
-    anim.show && anim.cardAnim.includes('rcLongPulse'), JSON.stringify(anim));
-  check('完成徽章持续呼吸动画',
-    anim.badgeAnim.includes('rcBadge'), JSON.stringify(anim));
+  check('结果卡 show + 一次性入场 rcIn',
+    anim.show && anim.cardAnim.includes('rcIn'), JSON.stringify(anim));
+  check('结果卡无 rcLongPulse 持续长脉冲',
+    !anim.cardAnim.includes('rcLongPulse'), JSON.stringify(anim));
+  check('完成徽章无 rcBadge 持续呼吸',
+    !anim.badgeAnim.includes('rcBadge'), JSON.stringify(anim));
 
   await page.waitForTimeout(600);
   const dismissed = await page.evaluate(() => {
