@@ -128,6 +128,10 @@ const FORECAST = {
   await page.evaluate(() => window.__cockpit._kbExit());
 
   // F. 3D 不变量未破 + 0 JS 错误
+  // v0.9.50：先等行驶落位再读贴轨量——E 段刚触发一次真实 driveTo，旧版在行驶
+  // 中途采样 camOffRail（机位锚点正在插值）偶发非零，属采样竞态而非不变量破损。
+  await page.waitForFunction(() => !window.__cockpit.isDriving, null, { timeout: 8000 });
+  await sleep(300);
   const offRail = await page.evaluate(() => window.__cockpit.camOffRail);
   check('F1 机位仍贴轨（camOffRail≈0）', offRail < 0.01, 'offRail=' + offRail.toFixed(4));
   check('F2 全程 0 JS 错误', errors.length === 0, errors.slice(0, 3).join(' | '));

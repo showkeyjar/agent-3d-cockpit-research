@@ -32,3 +32,7 @@ prototype/record_demo*.js
 prototype/verify_blog*.js
 prototype/verify_wechat.js
 prototype/probe_clean.js
+
+# ── UI 走查诊断产物（~81M 截图/报告/日志 + 临时装置，按既定策略不入库；结论已固化进 CHANGELOG v0.9.50）──
+ui-audit/
+.box-agent-scratch/
