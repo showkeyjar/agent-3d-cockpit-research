@@ -20,7 +20,7 @@ async function main() {
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('favicon')) errors.push('CONSOLE: ' + m.text()); });
 
-  await page.goto('http://localhost:8770/?mode=transparent-nolink', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:8770/?mode=transparent-nolink&test=1', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
   // 1) 模式已生效

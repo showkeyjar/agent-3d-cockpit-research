@@ -22,7 +22,7 @@ async function main() {
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('favicon')) errors.push('CONSOLE: ' + m.text()); });
 
-  await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
+  await page.goto('http://127.0.0.1:8770/?test=1', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__cockpit && window.__cockpit.camOffRail !== undefined, null, { timeout: 20000 });
   await sleep(800);
 

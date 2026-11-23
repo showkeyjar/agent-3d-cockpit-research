@@ -9,8 +9,46 @@ __pycache__/
 # ── 运行时产物与密钥 ──
 *.log
 *.db
+*.db-shm
+*.db-wal
 server.config.json
 llm-config.json
+
+# ── 本地凭据 / 平台临时文件（严禁提交）──
+.gh_token
+.wx_token
+.wx_*
+*_token
+*.secret
+
+# ── 会话产物（不进仓库）──
+outputs/
+.playwright-mcp/
+blog/_embed_test.html
+blog/assets/_verify_*.png
+blog/assets/frames-*/
+blog/assets/sheet-*.png
+blog/assets/live*.png
+blog/assets/hw-00-empty.png
+blog/assets/hw-02-step1-arrival.png
+blog/assets/hw-03-step2-arrival.png
+blog/assets/real-04-selected-demo.png
+blog/assets/real-05-arrival-demo.png
+blog/assets/real-06-result-demo.png
+blog/assets/real-07-timeline-demo.png
+blog/assets/real-08-decision-demo.png
+blog/assets/01-*.gif
+blog/assets/02-*.gif
+blog/assets/03-*.gif
+blog/assets/gif-*.gif
+blog/capture-live*.js
+blog/capture-demo.js
+blog/capture-hw.js
+blog/build_selfcontained.py
+blog/博文_内嵌图版.md
+blog/把VibeCoding开成一场3D驾驶_自包含.html
+blog/实质进展_图文博文*.md
+blog/index.html
 
 # ── 调试残留（原型目录，已清洁剔除，以下防止误加）──
 _*.js
@@ -25,8 +63,7 @@ _probe_near.js
 _verify_llm_overwrite.js
 test_allbranches.js
 
-# ── 促销素材与录制脚本（16.7MB，按既定策略不入库；策略原在 .workbuddy/memory，现落到 git 侧可见）──
-docs/assets/
+# ── 促销素材与录制脚本（旧策略；现改为入库精选素材供 README 展示）──
 docs/PROMO-BLOG*.html
 prototype/record_demo*.js
 prototype/verify_blog*.js

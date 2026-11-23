@@ -887,6 +887,10 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   // v0.9.43 B2 组：仅隐藏「指纹环」这一路真实内部状态呈现，其余呈现 + 真执行全保留。
   // 与 B 组唯一差异 = 指纹环有无；不碰 execute / 账本 internal_state / 机位 / 轨道 / 到达牌。
   if(m==='no-fingerprint'){ window._noFingerprint = true; }
+  // FI-07（v0.9.49.4）：伪造到达类测试钩子（setupTestArrival/simulateArrival）
+  // 仅在 ?test=1 时可用。正常页面调用直接拒绝——诚实性系统不留
+  // 「控制台一键伪造 source=llm 完成态」的公开通道。只读诊断钩子不受影响。
+  window.__cockpitTestMode = new URLSearchParams(location.search).get('test') === '1';
 }catch(e){} })();
 </script>
 <canvas id="scene"></canvas>
@@ -2502,7 +2506,11 @@ canvas.addEventListener('dblclick', e => {
 /* ── 后端连接 ── */
 let ws = null, wsConnected = false, _lastContext = '';
 let _wsRetry = 0;   // 断线重连退避计数；连上即清零
-const WS_URL = 'ws://localhost:8770/ws';
+// FI-05：WS 地址由页面 location 推导（相对化）——后端换端口/反代/域名/HTTPS 均零配置。
+// file:// 直开（location.host 为空）时回退本机默认 8770，保持静态预览可用。
+const WS_URL = location.host
+  ? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
+  : 'ws://localhost:8770/ws';
 
 function wsConnect(){
   try { ws = new WebSocket(WS_URL); } catch(e) { return; }
@@ -2548,7 +2556,10 @@ function handleWsMessage(msg){
       showToast('当前没有正在进行的生成', '#8fa3c8');
     }
   }
-  else if (msg.type === 'execute_ack'){ /* 已受理，等待任务进度 */ }
+  else if (msg.type === 'execute_ack'){
+    // FI-01：后端已受理 = 真实起步信号（此前车只在等待，不动）。
+    if (_execDrive && !_execDrive.done) _execDrive.started = true;
+  }
   else if (msg.type === 'pong' || msg.type === 'reset_ack' || msg.type === 'context_ack'){
     /* 心跳 / 复位回执，不影响执行态 */
   }
@@ -2978,7 +2989,7 @@ function updateConn(){
 /* 每 12 秒探一次模型状态：忙时明确告诉用户为什么没出模型结果 */
 async function pollStrata(){
   try {
-    const r = await fetch('http://localhost:8770/api/health', {cache:'no-store'});
+    const r = await fetch('/api/health', {cache:'no-store'});
     const d = await r.json();
     _llmBusy = d.llm_busy;
     updateConn();
@@ -3206,6 +3217,170 @@ function focusArrivalIn3D(x, y, z){
 /* ── 行车镜头（新的行程会取消未完成的旧行程，避免连点互相抢 currentPos） -- */
 let _driveToken = 0;
 let _speedScale = 1;   // 驾驶速度：慢 0.5 / 中 1 / 快 2（影响过场动画时长）
+
+/* ── FI-01（v0.9.50）：事件驱动执行行驶 ─────────────────────────────
+   旧时序：execute_done 之后才 driveTo——行驶是「工作完成后的过场动画」，
+   时长由距离决定（dist*100），与真实执行完全解耦（B1 断链的残留形态）。
+   新时序：出发（startExecution）即 beginExecDrive——
+     · execute_ack / 首个 token = 真实起步信号，车开始动；
+     · token 流 = 巡航：目标进度由真实输出字数驱动（chars/220，封顶 0.9），
+       模型快则车快、模型慢则车慢；执行期间车绝不越过 90%（活没干完不到站）；
+     · execute_done = 落位信号：剩余路段在 ~700ms 内单调滑完并精确停靠；
+     · 中断/失败/澄清 = 就地停车或退回岔口，绝不滑向「完成」终点。
+   不变量全部保留：机位公式不动（currentPos − forward(camAnchorYaw) × dist，
+   眼位 1.35m）、camOffRail≈0、转向/停靠并入行驶进度单调完成、落位即静止、
+   manualCamDirty 尊重手动视角、_driveToken 防连点抢道。
+   兜底：无任何 token 的慢模型/忙等，车以极慢巡航（~0.008/s）如实表达「在干活但没产出」；
+   70s 执行硬超时仍在 startExecution，超时走 finishExecution(false) 停车路径。 */
+let _execDrive = null;   // {token,startPos,targetPos,driveYaw,startAnchorYaw,anchorDelta,
+                         //  dock,dockFromDist,dockFromPitch,target,maxP,done,finished,chars}
+const EXEC_DRIVE_CHARS_FULL = 220;   // 字数→巡航进度映射基准（与旧 compose 上限同量级）
+const EXEC_DRIVE_CRUISE_CAP = 0.9;   // 执行期间进度上限：没拿到 execute_done 绝不到站
+const EXEC_DRIVE_IDLE_CREEP = 0.008; // 无 token 时的极慢巡航（每秒进度），表达真实等待
+const EXEC_DRIVE_SETTLE_MS = 700;    // execute_done 后剩余路段的滑完时长（落位收尾，非工作动画）
+
+function beginExecDrive(target){
+  if (!target) return false;
+  const myToken = ++_driveToken;
+  const dir = new THREE.Vector3(...target).sub(currentPos);
+  const driveYaw = Math.atan2(dir.z, dir.x);
+  let anchorDelta = driveYaw - camAnchorYaw;
+  while (anchorDelta >  Math.PI) anchorDelta -= 2 * Math.PI;
+  while (anchorDelta < -Math.PI) anchorDelta += 2 * Math.PI;
+  _execDrive = {
+    token: myToken,
+    startPos: currentPos.clone(),
+    targetPosV: new THREE.Vector3(...target),
+    driveYaw, startAnchorYaw: camAnchorYaw, anchorDelta,
+    dockFromDist: cam.dist, dockFromPitch: cam.pitch,
+    target: 0, maxP: 0, p: 0, chars: 0,
+    started: false, done: false, settleT0: 0, settleFrom: 0,
+    lastTick: performance.now(),
+  };
+  camAnchorYawT = driveYaw;   // 本段方向目标（与 driveTo 同契约：落位时 anchor 收敛于此）
+  targetPos.set(...target);
+  isDriving = true;
+  _camDocked = false;
+  cam.panT.set(0, 0, 0); _panHoldUntil = 0;
+  _gaze = null;
+  showNowBar(false);
+  requestAnimationFrame(execDriveStep);
+  return true;
+}
+
+/* token 到达 = 真实巡航信号。字数驱动目标进度；首 token 即起步。 */
+function execDriveOnToken(chars){
+  const d = _execDrive;
+  if (!d || d.done) return;
+  d.started = true;
+  d.chars = chars;
+  d.target = Math.min(EXEC_DRIVE_CRUISE_CAP, chars / EXEC_DRIVE_CHARS_FULL);
+}
+
+/* execute_done = 落位信号。ok=true 滑完剩余路段并停靠；
+   ok=false（失败/超时）就地停车；clarify 退回岔口（不伪造位移）。 */
+function execDriveFinish(ok, clarify){
+  const d = _execDrive;
+  if (!d || d.done) return;
+  d.done = true;
+  d.finished = ok && !clarify;
+  d.settleT0 = performance.now();
+  d.settleFrom = d.p;
+  if (clarify){
+    // 澄清 = 没走过这一步：车退回出发点（岔口），不推进任何进度。
+    d.retreat = true;
+  }
+}
+
+/* 中断 = 立即就地停车：保留已走过的真实位移，绝不滑向终点。 */
+function execDriveAbort(){
+  const d = _execDrive;
+  if (!d || d.done) return;
+  d.done = true; d.finished = false; d.aborted = true;
+  d.settleT0 = performance.now(); d.settleFrom = d.p;
+}
+
+function execDriveStep(now){
+  const d = _execDrive;
+  if (!d || d.token !== _driveToken) return;
+  const dt = Math.min(0.1, (now - d.lastTick) / 1000);
+  d.lastTick = now;
+  if (!d.done){
+    // 巡航：无 token 时极慢 creeping（真实等待）；有 token 时向字数目标平滑逼近。
+    if (!d.started) d.target = Math.min(EXEC_DRIVE_CRUISE_CAP * 0.25, d.target + EXEC_DRIVE_IDLE_CREEP * dt);
+    const rate = d.started ? 1.6 : 0.5;   // 逼近速率（1/s）：token 驱动时跟手，等待时迟缓
+    // FI-01：ack 后即使 0 字也给微小正目标——「已受理在干活」与「未受理」可区分；
+    // 单调：p 只进不退（目标回落时保持原位，绝不倒车）。
+    const goal = Math.max(d.target, d.p, d.started ? 0.01 : 0);
+    d.p += (goal - d.p) * Math.min(1, rate * dt);
+    d.p = Math.min(d.p, EXEC_DRIVE_CRUISE_CAP);
+  } else if (d.aborted){
+    // 就地停车：p 冻结，仅把 isDriving 收尾（下方统一处理）
+  } else if (d.retreat){
+    const k = Math.min(1, (now - d.settleT0) / EXEC_DRIVE_SETTLE_MS);
+    d.p = d.settleFrom * (1 - k);   // 单调退回岔口
+  } else if (d.finished){
+    const k = Math.min(1, (now - d.settleT0) / EXEC_DRIVE_SETTLE_MS);
+    const eased = 1 - Math.pow(1 - k, 2);
+    d.p = d.settleFrom + (1 - d.settleFrom) * eased;   // 单调滑完剩余路段
+  } // else 失败：p 冻结（就地停车）
+  const eased = d.p;   // p 本身已按事件单调推进，这里直接用作插值参数
+  currentPos.lerpVectors(d.startPos, d.targetPosV, eased);
+  camAnchorYaw = d.startAnchorYaw + d.anchorDelta * eased;
+  // 停靠收近只在「确认完成」的落位段进行（与旧 arrivalDock 语义一致：真拿到结果才收近）。
+  if (d.finished){
+    cam.dist  = cam.distT  = d.dockFromDist  + (ARRIVAL_CAM_DIST  - d.dockFromDist)  * eased;
+    if (!manualCamDirty) cam.pitch = cam.pitchT = d.dockFromPitch + (ARRIVAL_CAM_PITCH - d.dockFromPitch) * eased;
+  }
+  trailHistory.push(currentPos.clone());
+  if (trailHistory.length > trailLen) trailHistory.shift();
+  for (let i=0; i<trailLen; i++){
+    if (i < trailHistory.length){
+      trailPos[i*3] = trailHistory[i].x;
+      trailPos[i*3+1] = trailHistory[i].y;
+      trailPos[i*3+2] = trailHistory[i].z;
+      const a = 1 - i/trailLen;
+      trailCol[i*3] = 0.30*a; trailCol[i*3+1] = 0.70*a; trailCol[i*3+2] = 0.82*a;
+    }
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+  const settling = d.done && (d.finished || d.retreat);
+  const settleDone = settling && (now - d.settleT0) >= EXEC_DRIVE_SETTLE_MS;
+  const stopNow = d.done && (d.aborted || (!d.finished && !d.retreat));
+  if (!settleDone && !stopNow){
+    if (!manualCamDirty){
+      cam.yawT = d.driveYaw;
+      if (!d.finished) cam.pitchT = Math.max(CAM_PITCH_MIN, Math.min(CAM_PITCH_MAX, 0.12));
+    }
+    requestAnimationFrame(execDriveStep);
+  } else {
+    // 收尾：落位即静止（完成态精确停靠；中断/失败就地停；澄清回到岔口）。
+    isDriving = false;
+    camAnchorYaw = d.startAnchorYaw + d.anchorDelta * d.p;
+    if (d.finished){
+      currentPos.copy(d.targetPosV);
+      camAnchorYaw = d.driveYaw;
+      cam.dist = cam.distT = ARRIVAL_CAM_DIST;
+      if (!manualCamDirty) cam.pitch = cam.pitchT = ARRIVAL_CAM_PITCH;
+      _camDocked = true;
+    } else if (d.retreat){
+      currentPos.copy(d.startPos);
+      camAnchorYaw = d.startAnchorYaw;
+    }
+    branchSigns.forEach(s => {
+      if (s.userData._fadedPast) return;
+      if (s.userData.baseOpacity !== undefined && s.userData.plane){
+        s.userData.plane.material.opacity = s.userData.baseOpacity;
+        delete s.userData.baseOpacity;
+      }
+    });
+    showNowBar(true);
+    const cb = d.onSettled;
+    _execDrive = null;
+    if (cb) cb();
+  }
+}
 const PASS_RADIUS = 4.5;  // 行驶方向投影距离 < -PASS_RADIUS → 已驶过：驶过即淡出（后视镜语义）
 const FADE_MS = 300;      // 驶过淡出的过渡时长
 const NEAR_FADE_OUT = 2.5; // 近场淡出外限：相机-牌面距离 ≤ 2.5m → 全透明（整组隐藏、点击穿透）
@@ -3550,6 +3725,9 @@ function updateCameraFade(){
    行驶入口隐藏、结束恢复；驶过节点的路牌由 updatePassedFade 淡出。 */
 function driveTo(target, callback, opts={}){
   const myToken = ++_driveToken;
+  // FI-01：传统 driveTo（提问移动/回退/钩子）接管镜头时，作废在途执行行驶——
+  // _driveToken 递增已使 execDriveStep 自行退出，这里补状态与「现在」条收尾。
+  if (_execDrive){ _execDrive = null; isDriving = false; }
   // v0.9.11.2：行驶镜策略初版把隐藏「现在」牌放在 journey.length<=1 早退分支之后——
   // 首轮自动行驶（journey=仅起点）根本不触发隐藏，用户全程看到车顶牌在视野中央。
   // 把隐藏提到函数入口，两个出口（直达零行驶期 & 全程行驶）统一处理。
@@ -3768,7 +3946,7 @@ function runForecast(context, opts={}){
   hideCompare();
   renderBranchCards([]);
 
-  const url = `http://localhost:8770/api/forecast?context=${encodeURIComponent(context)}&k=5`;
+  const url = `/api/forecast?context=${encodeURIComponent(context)}&k=5`;
 
   // ① 本地快速通道：完全不碰 LLM，几十毫秒就把前方路牌立起来
   fetch(url + '&fast=1')
@@ -4003,6 +4181,9 @@ function applyForecastResult(msg){
 
   // 新一轮推演：清掉上一轮残留的执行状态、任务条与结果卡，绝不继承「执行中」
   clearTimeout(execTimer); execTimer = null;
+  // FI-01：新提问作废在途执行行驶（用户显式换话题 = 放弃这一步的位移主张），
+  // 就地停车并清状态；随后 applyForecastResult 自身的 driveTo 会接管镜头。
+  if (_execDrive){ execDriveAbort(); }
   execInfo = {idx:-1, label:'', mode, done:true};
   _seqAdvance = null;
   _seqStartFn = null;      // 上一轮顺序流程的确认条作废（DOM 也会随重绘消失）
@@ -5198,13 +5379,14 @@ function showResultCard(d){
   const _cm = document.getElementById('rcCompletion');
   if (_cm){
     const comp = d.completion || (d.clarify ? 'need_input'
-                    : (hasReal ? 'achieved' : 'partial'));
+                    : (hasReal && !d.truncated ? 'achieved' : 'partial'));
     const meta = COMPLETION_META[comp] || COMPLETION_META.partial;
     _cm.style.display = 'block';
     _cm.style.color = meta.color;
     _cm.style.background = meta.bg;
     const _cmText = document.getElementById('rcCompText');
     if (_cmText) _cmText.textContent = `目标达成度：${meta.text}`
+      + (d.truncated ? '（输出达上限被截断，成果不完整）' : '')
       + (d.self_rating ? `（模型自评：${escText(d.self_rating)}）` : '')
       + ' · 这是对用户目标而言的完成程度，与「模型有没有输出」分开看';
     // v0.9.31 P0 行动化：达成度不能只"知道"，要给出下一步可点击动作——
@@ -5676,7 +5858,7 @@ function drawHistoryTrail(nodes){
 
 async function loadHistory(){
   try{
-    const r = await fetch('http://localhost:8770/api/journeys?limit=20');
+    const r = await fetch('/api/journeys?limit=20');
     const d = await r.json();
     _history = Array.isArray(d) ? d : [];
   }catch(e){ _history = []; }
@@ -5716,7 +5898,7 @@ async function showHistoryJourney(id, el){
   if (el) el.classList.add('sel');
   let data;
   try{
-    data = await (await fetch('http://localhost:8770/api/journeys/' + id)).json();
+    data = await (await fetch('/api/journeys/' + id)).json();
   }catch(e){ return; }
   const nodes = data.nodes || [];
   drawHistoryTrail(nodes);
@@ -5786,7 +5968,7 @@ function saveJourneyRecord(ok, detail, idx){
       exec_self_rating: detail.self_rating || '',
     },
   };
-  fetch('http://localhost:8770/api/journeys', {
+  fetch('/api/journeys', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body),
   }).then(() => loadHistory()).catch(() => {});
@@ -5810,6 +5992,7 @@ const TL_CSV_COLS = [
   'forecast_fork_count','forecast_cost_ms','exec_source','exec_reason',
   'exec_ok','exec_interrupted','exec_clarify','exec_elapsed_ms','exec_tokens',
   'exec_chain','exec_completion','exec_self_rating','exec_decorative','exec_synthesized',
+  'exec_truncated',
   'internal_state_status','internal_state_source','internal_state_dist','internal_state_top',
   'digest_kept_seqs',
   'output_chars','output','note',
@@ -5893,8 +6076,10 @@ function recordRun(detail, status){
       chain:Array.isArray(detail.chain) ? detail.chain.slice() : [],
       // v0.9.30 P0 判据层：达成度与模型自评（可用性与「有没有输出」分开记账）
       completion: detail.completion || (detail.clarify ? 'need_input'
-                    : (detail.ok && detail.source === 'llm' ? 'achieved' : 'partial')),
+                    : (detail.ok && detail.source === 'llm' && !detail.truncated ? 'achieved' : 'partial')),
       self_rating: detail.self_rating || '',
+      // FI-02：上限截断（finish_reason=length / 结果卡超长裁剪）正交记账。
+      truncated: !!detail.truncated,
       // v0.9.32 H2.2 C 组：这是模拟执行（非真实推进）。source 仍为 'llm' 以维持
       // 呈现一致，但研究数据用 decorative 正交标记明示，绝不混入 P1 真实结论。
       decorative: !!detail.decorative,
@@ -6157,6 +6342,7 @@ function forkFromRun(runId){
     showToast('当前这一步还在生成，先停止或等它结束再分叉', '#ffb13d');
     return false;
   }
+  if (_execDrive){ showToast('车还在落位，稍候再分叉', '#ffb13d'); return false; }
   const ctx = String(run.context || '').trim();
   if (!ctx){
     showToast('这一轮没有记录原始问题，无法从它重走', '#ffb13d');
@@ -6240,6 +6426,7 @@ function tlFlatRun(r){
     exec_completion:m.completion || '', exec_self_rating:m.self_rating || '',
     exec_decorative:m.decorative ? '1' : '0',
     exec_synthesized:m.synthesized ? '1' : '0',
+    exec_truncated:m.truncated ? '1' : '0',
     internal_state_status:m.internal_state?.status || 'unavailable',
     internal_state_source:m.internal_state?.source || '',
     internal_state_dist:JSON.stringify(m.internal_state?.dist || []),
@@ -6774,6 +6961,7 @@ function travelFuture(i){
     showToast('当前这一步还没走完，等它结束再换路', '#ffb13d');
     return;
   }
+  if (_execDrive){ showToast('车还在落位，稍候再换路', '#ffb13d'); return; }
   document.getElementById('explainCard').classList.remove('show');
 
   // 未被选中的未来路牌归隐：用户选定了一条路，其余候选不再绕在面前
@@ -7062,6 +7250,9 @@ function startExecution(idx, opts={}){
   const c = _currentCandidates[idx];
   if (!c) return;
   if (execInfo.idx === idx && !execInfo.done) return;   // 同一步正在跑，忽略重复点
+  // FI-01：上一步的落位收尾（~700ms）还在滑行时不允许再出发——
+  // 否则新行驶会抢走 currentPos，旧到达广播落在新路段上（错锚）。
+  if (_execDrive){ showToast('车还在落位，稍候再出发', '#ffb13d'); return; }
   // v0.9.17：只有「分叉重走」钩子触发的执行才继承父轮标记；
   // 用户自己另点一条路 = 普通新一轮，绝不假装成从某轮分叉出来的。
   if (!opts.replay){ _forkCtx = null; _replayHook = null; }
@@ -7093,6 +7284,10 @@ function startExecution(idx, opts={}){
 
   hideResultCard();
   openTaskBar();
+
+  // FI-01：出发即开始「事件驱动行驶」——车由 execute_ack/token/execute_done 驱动，
+  // 不再是工作完成后的过场动画。目标 = 选定分支的落位点。
+  if (_branchPositions[idx]) beginExecDrive(_branchPositions[idx]);
 
   clearTimeout(_waitHintTimer);
   _waitHintTimer = setTimeout(() => {
@@ -7280,7 +7475,7 @@ function autoExploreNext(arrivalPos, doneLabel, doneSteps){
   // 主推演此刻已是 fast 通道，未来牌同样应是「快速预览」而非再来一次完整 LLM 推演；
   // 完整推演会占 35B 单槽且耗时 20s+，在刚结束一次 execute 后排队 → 未来牌延迟到 20s+ 才出现，
   // 用户感知为「第二轮路牌消失」（已知的真实回归点）。fast 通道秒级返回，且 source 如实标 local。
-  fetch(`http://localhost:8770/api/forecast?context=${encodeURIComponent(ctx)}&k=5&fast=1`)
+  fetch(`/api/forecast?context=${encodeURIComponent(ctx)}&k=5&fast=1`)
     .then(r => r.json())
     .then(res => {
       // 作废判据：本段路已被前进走完 / 已在执行新岔路 / 期间又有更新的推演（token 比较）
@@ -7399,6 +7594,7 @@ function finishExecution(ok, note='', detail={}){
   // ── v0.9.16 用户中断：不是完成，绝不走到「到达牌 / 主轴推进 / 写轨迹」──
   // 与澄清态同理：中断是一次「暂停/取消」，把它记成走过一步就是 P1/P3 复辟。
   if (detail.interrupted){
+    execDriveAbort();   // FI-01：中断 = 就地停车，保留真实位移，绝不滑向终点
     const idxI = execInfo.idx;
     const modeI = execInfo.mode;
     const labelI = detail.label || execInfo.label
@@ -7553,8 +7749,17 @@ function finishExecution(ok, note='', detail={}){
   };   // end postDriveArrival 定义体
 
   if (p){
-    // 真拿到结果才停靠（澄清 = 停下来问用户，不伪造完成，也不收近机位）
-    driveTo(p, postDriveArrival, { arrivalDock: !detail.clarify });
+    // FI-01：行驶已在 startExecution 出发时开始、由 token 流驱动到现在——
+    // execute_done 只是「落位信号」：ok 滑完剩余路段并停靠，失败就地停车，
+    // 澄清退回岔口。到达广播（结果卡/账本/续探）仍严格绑定「落位完成」，
+    // 与旧版「行驶结束才广播」的时序纪律一致。
+    execDriveFinish(ok, !!detail.clarify);
+    if (_execDrive){
+      _execDrive.onSettled = postDriveArrival;
+    } else {
+      // 无行驶在途（如钩子直接注入 execute_done）：保持旧行为，立即广播。
+      postDriveArrival();
+    }
   } else {
     approachTheZ(_branchPositions[0]);
     if (!detail.clarify){
@@ -7593,6 +7798,7 @@ function undoStep(){
     showToast('这一步还在执行中，等它走完再回退', '#ffb13d');
     return;
   }
+  if (_execDrive){ showToast('车还在落位，稍候再回退', '#ffb13d'); return; }
   if (journey.length <= 1){
     showToast('还没走过任何路，无从回退', '#ffb13d');
     return;
@@ -7659,6 +7865,8 @@ function onExecuteDone(msg){
     // 丢弃，导致结果卡与账本全走前端 fallback 推导（与后端判据不一致、need_input 永不
     // 出现）。如实透传，让达成度以后端规则判据为准。
     completion:msg.completion, self_rating:msg.self_rating,
+    // FI-02：上限截断标记透传——结果卡如实提示「未完整」，账本可复算。
+    truncated:!!msg.truncated,
     clarify:msg.clarify, question:msg.question,
     interrupted:!!msg.interrupted, cancel_late:!!msg.cancel_late,
     note:msg.note,
@@ -7713,9 +7921,12 @@ function onToken(msg){
   if (msg.reset){
     _streamText = ''; _streamHint = '首次回答把任务推回给了用户，已自动重试…';
     renderStreamNow();
+    // FI-01：重试 = 第一次产出口作废，巡航进度归零重新由真实字数驱动（不早退）。
+    if (_execDrive && !_execDrive.done){ _execDrive.chars = 0; _execDrive.target = 0; _execDrive.p = Math.min(_execDrive.p, 0.05); }
     return;
   }
   _streamText += (msg.text || '');
+  execDriveOnToken(_streamText.length);   // FI-01：真实字数 = 巡航信号
   if (!_streamRenderTimer){
     _streamRenderTimer = setTimeout(() => { _streamRenderTimer = null; renderStreamNow(); }, 100);
   }
@@ -8446,6 +8657,21 @@ init();
     },
     get stopBtnState() { return document.getElementById('stopGenBtn')?.dataset.state || ''; },
     get execState() { return {done:execInfo.done, idx:execInfo.idx, mode:execInfo.mode}; },
+    // FI-01：事件驱动行驶的可观测凭据（回归/审计用，只读）。
+    get execDriveState() {
+      const d = _execDrive;
+      return d ? {active:true, p:+d.p.toFixed(4), target:+d.target.toFixed(4),
+                  chars:d.chars, started:d.started, done:d.done,
+                  finished:!!d.finished, aborted:!!d.aborted, retreat:!!d.retreat}
+               : {active:false};
+    },
+    // FI-01 回归钩子（仅 ?test=1）：桩 WS 下 startExecution 会因离线提前收尾，
+    // 故提供与真实出发同语义的行驶启动入口（_beginExec 已置执行态）。
+    _startExecDriveForTest(idx){
+      if (!window.__cockpitTestMode) return false;
+      const to = _branchPositions[idx];
+      return to ? beginExecDrive(to) : false;
+    },
     get wsLog() { return _wsLog.map(x => ({...x})); },
     // v0.9.32 H2.2 C 组只读钩子（数据诚实/呈现一致的可复算核验）
     get decorativeMode() { return window._decorativeMode === true; },
@@ -8507,12 +8733,19 @@ init();
     // v0.9.23 · 实用化回归钩子：用与真实到达完全相同的 detail 结构驱动 HUD / 里程碑 / 决策链（不依赖 35B）
     refreshHud() { updateProgressHud(); return true; },
     simulateArrival(opts) {
+      // FI-07（v0.9.49.4）：模拟到达是测试搭景，不是真实执行——
+      // ① 仅 ?test=1 页面可用（正常页调用直接拒绝）；
+      // ② 强制 decorative 正交标记（沿用 v0.9.32 C 组语义：呈现一致、
+      //    账本/导出/collectRealOutputs 单列，绝不混入 P1 真实结论）。
+      // source 允许测试指定以驱动 HUD 徽章断言，但 decorative 不可被 opts 覆盖。
+      if (!window.__cockpitTestMode) return false;
       const d = Object.assign({
         ok: true, mode: 'choice', label: '先查资料',
         output: '这是一段模拟结论文本，用于验证常驻 HUD 与关键发现脊柱是否如实呈现。',
         source: 'llm', elapsed_ms: 3200, tokens: 512, chain: ['output'],
         pos: [8, 0, 8], branchLabel: '先查资料', context: '国内电力交易市场的格局'
       }, opts || {});
+      d.decorative = true;
       journey.push({ pos: [8, 0, 8], label: d.label, color: '#34f5a0',
                      arrivalDetail: d, arrivalMarker: null, tubes: [], mirrorOrb: null });
       _arrivalResults.set(-2, d);
@@ -8650,8 +8883,9 @@ init();
       };
     },
     // ── 确定性测试搭景：绕开慢速 LLM 执行链，直接立好「到达牌 + 未来路牌」场景 ──
-    // 只在 __cockpit._testMode 时生效，正常使用不会触发。
+    // FI-07：仅 ?test=1 页面可用；到达 detail 强制 decorative 正交标记。
     setupTestArrival(anchor) {
+      if (!window.__cockpitTestMode) return 0;
       __cockpit._testMode = true;
       const a = anchor || [8, 0, 8];
       currentPos.set(a[0], a[1], a[2]);
@@ -8670,6 +8904,7 @@ init();
       const detail = { ok: true, mode: 'choice', label: '先查资料', title: '这一步做完了',
         question: '分析国内电力交易市场格局', count: 2, elapsed: '3.2s',
         tasks: [], output: '已完成该步骤，结果可点击下方路牌查看。', source: 'llm',
+        decorative: true,
         pos: [a[0], a[1], a[2]], branchLabel: '先查资料' };
       const sign = addArrivalMarker(a, '先查资料', '#34f5a0', 'choice', detail);
       // addArrivalMarker 内部已 push branchSigns；journey 为空时跳过挂载

@@ -15,7 +15,7 @@ async function main() {
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = [];
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
-  await page.goto('http://localhost:8770/', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:8770/?test=1', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 
   // ── A：单次行驶隐藏时序（对照上轮夹具路径）
@@ -69,17 +69,23 @@ async function main() {
   //  本轮已改为行驶结束回调触发——用 MutationObserver 等 class=show 并断言动画生效
   await page.evaluate(() => window.__cockpit.setupTestArrival([8,0,8]));
   const rc = await page.evaluate(async () => {
-    window.__cockpit.finishOnce({});
-    await new Promise(resolve => {
+    // FI-01 时序说明：无在途执行行驶时（本夹具直接 finishOnce），到达广播同步执行，
+    // .show 在 finishOnce 返回前就已加上——先挂 MO 再触发会永远等不到「变化」。
+    // 改为：先挂观察器 + 兜底检查已 shown（两种时序都覆盖），再触发。
+    const shown = await new Promise(resolve => {
+      const card = document.getElementById('resultCard');
       const mo = new MutationObserver(() => {
-        if (document.getElementById('resultCard').classList.contains('show')){ mo.disconnect(); resolve(); }
+        if (card.classList.contains('show')){ mo.disconnect(); resolve(true); }
       });
-      mo.observe(document.getElementById('resultCard'), { attributes: true, attributeFilter: ['class'] });
+      mo.observe(card, { attributes: true, attributeFilter: ['class'] });
+      window.__cockpit.finishOnce({});
+      if (card.classList.contains('show')){ mo.disconnect(); resolve(true); }
+      setTimeout(() => { mo.disconnect(); resolve(card.classList.contains('show')); }, 5000);
     });
     const card = document.getElementById('resultCard');
     const cs = getComputedStyle(card);
     return {
-      show: card.classList.contains('show'),
+      show: shown && card.classList.contains('show'),
       anim: cs.animationName,
       dur: cs.animationDuration,
       badgeAnim: getComputedStyle(document.querySelector('#resultCard .rc-badge')).animationName,

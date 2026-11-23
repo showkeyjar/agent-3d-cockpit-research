@@ -7,6 +7,113 @@
 
 ---
 
+## v0.9.50 · 2026-11-22 · FI-01 事件驱动执行行驶：「行驶」不再是完成后的过场动画
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) FI-01（🔴 愿景级）。
+**这是驾驶隐喻成立的关键一步**：旧时序 `execute_done → driveTo`，行驶时长由距离决定
+（`dist*100`），与真实执行完全解耦——车是「工作完成后的庆祝动画」。本版把行驶改由
+**真实执行事件**驱动，学科 2 检验问题 B1（路径位移 ↔ 真实工作）在实现层闭合。
+
+### 新时序（`beginExecDrive` / `execDriveOnToken` / `execDriveFinish` / `execDriveAbort`）
+
+- **出发即行驶**：`startExecution` 立刻 `beginExecDrive(分支落位点)`，不再等 execute_done；
+- **execute_ack = 起步信号**：后端受理即 `started=true`（0 字也给微小正目标，「已受理」与「未受理」可区分）；
+- **token 流 = 巡航**：目标进度 = 真实输出字数 / 220，封顶 **0.9**——执行期间车绝不越过 90%（活没干完不到站）；模型快车快、模型慢车慢；p 单调只进不退；
+- **无 token 的忙等**：极慢巡航（0.008/s，上限 0.225）如实表达「在干活但没产出」，不是假节拍；
+- **execute_done = 落位信号**：剩余路段 ~700ms 单调滑完并精确停靠（`ARRIVAL_CAM_DIST`、docked）；到达广播（结果卡/账本/续探）仍严格绑定落位完成，时序纪律不变；
+- **中断 = 就地停车**：p 冻结，保留已走过的真实位移，绝不滑向终点（与中断第三态天然契合）；
+- **失败/超时 = 就地停车**：不 docked、不宣告完成；**澄清 = 单调退回岔口**（没走过这一步）；
+- **token reset（重试）**：进度回落 ≤0.05 重新由真实字数驱动，重走后仍可达终点；
+- **并发纪律**：落位收尾期间 `startExecution/travelFuture/undoStep/forkFromRun` 一律提示稍候（防错锚）；新提问/传统 driveTo 接管时作废在途执行行驶（`_driveToken` 既有机制）。
+
+### 不变量（全量几何回归锁死）
+
+机位公式一字未动（`currentPos − forward(camAnchorYaw) × dist`，眼位 1.35m）；
+`camOffRail≈0` 全程每一采样点；`camAnchorYawT` 出发写入、落位收敛（与 driveTo 同契约）；
+停靠收近并入行驶进度单调完成、落位即静止无回弹；`manualCamDirty` 尊重手动视角；
+驶过淡出/近场淡出/「现在」条隐藏恢复时序全部沿用。
+
+### 验证
+
+- **新回归 `test_exec_drive.js` 36/36**（桩 WS + 真实入口）：A 出发即行驶 / B token 单调驱动 + 0.9 封顶 / C 落位精确停靠 + anchor 收敛 + 2s 无回弹 / D 中断就地停 / E 澄清退回岔口 / F 失败不 dock / G reset 后仍达终点 / H 全程 rail≈0。
+- **真实后端端到端**（Ollama gemma3:1b）：280 字起草任务，巡航采样 p 0.02→0.69 随字数 40→322 单调推进、封顶 0.9 遵守、maxRail=0；落位 docked/dist=5/anchor==anchorT/source=llm/228tok/0 JS 错误。真实中断：首 token 后 stop → 位移冻结 0.0000、status=interrupted、rail=0。
+- **全量几何回归**：camera_diag、rail_camera 14/14、driving_view、ux_fixes5/6/7、nowsign_2、f32/f36/f37/f38、immersive、occlusion 全绿。
+- **全量功能回归**：honesty 5/5、opaque 22/22、keyboard 22/22、compare 27/27、cancel 33/33、timeline 42/42、practical 16/16、scenery 21/21、future_travel、arrival_persist 13/13、decorative、transparent-nolink、no-fingerprint 8/8、fi02_fi07 13/13、sign_topics 17/17、context_pull 14/14、refine_sync、clarify_dock/quick、click_det、walkthrough_real 15/15；后端 cancel 16/16、ws_lifecycle 14/14、truncation 16/16、expert_state 25/25、forecaster 29/29、topic_binding 全过。
+
+### 测试适配（如实记录，非产品回退）
+
+- `test_nowsign_2.js` C 段：夹具直接 finishOnce 时到达广播同步执行，`.show` 在 MO 挂上前已加——改为先挂观察器再触发 + 已 shown 兜底（两种时序都覆盖）。
+- `test_ux_fixes5.js` C 段：pickAt 扫描点可能落在底部输入栏（#intentRow）上被 DOM 吃掉——补 `elementFromPoint` 校验与用户真实可点语义一致。**基线对照确认此 flake 在改动前同样存在**（双向 stash 验证），非本版引入。
+- `walkthrough_real.js` P0 取消段：小模型可能瞬间生成完，固定等 2.5s 再 stop 变成「迟到取消」（v0.9.16 cancel_late 契约，done 是事实非伪装）——改为等「真实在生成」再取消；已生成完则按迟到取消分支如实断言。
+- **已知环境项（基线同样失败，stash 对照确认）**：`test_e2e` / `test_e2e_b` / `test_seq` 顺序链在本机小模型 + 无头环境 Page crashed / 拆分质量不足，不具判定力；与本版无关，如实记录不掩盖。
+
+---
+
+## v0.9.49.5 · 2026-11-22 · 实测修复批次三：长指令句碎片路牌质量门（FI-04）
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) FI-04。纯 forecaster 层，
+执行链 / 相机公式 / 路牌几何 / 中断态 / 实验操纵零触碰。
+
+- **`_extract_business_phrases` 三道质量门**（实测「拆解字左右」「一个天气应用首页写一段」的根因修复）：
+  - **嵌入动词切点**：CUT 正则补「写/包含/介绍/说明/显示/展示/回答/涵盖/覆盖/涉及/围绕/撰写/编写/起草/给出/列出/阐述/描述」——长指令句的动宾半句在动词处切开，不再粘成路牌；
+  - **数量词/单位残片过滤**：`QTY_FRAG`（字/词/句/段/篇/条/个/份/左右/以内…开头）+ 指令壳词黑名单（一段/中文回答/模块/内容/各自…）——「150字左右」切剩的「字左右」不再上牌；
+  - **计数头/尾剥离**：「一个天气应用首页」→「天气应用首页」（业务对象保留）；「生活指数三个模块」→「生活指数」。量词表刻意不含「数」——修复过程中实测发现「指数」的「数」会被计数尾误吃成「生活指」，已用整体量词短语匹配规避并加断言锁死。
+- **回归**：`test_topic_binding.py` 新增 [I] 组 11 项断言（三条实测长句 × 短语/路牌双层碎片检查 + 业务对象保留 + 中长期/用户侧边界不回归），全套通过；forecaster pytest 29/29；后端 cancel 16/16、ws_lifecycle 14/14、truncation 16/16；前端 honesty 5/5（20 牌）、sign_topics 17/17、opaque 22/22、keyboard 22/22、compare 27/27、practical 16/16、timeline 42/42。
+- **端到端实证**：真实 8770 fast=1 链路输入实测原句「写一段150字左右的产品说明：包含实时天气、逐小时预报、生活指数三个模块…」，路牌为「检索逐小时预报 / 对照实时天气 / 核算生活指数 / 落地逐小时预报 / 汇总产品」——碎片 0、JS 错误 0。
+
+---
+
+## v0.9.49.4 · 2026-11-22 · 实测修复批次二：截断如实标注（FI-02）+ 伪造钩子门控（FI-07）
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md)。执行链语义不变（仍单步真实流式），
+相机公式 / 路牌几何 / 中断态 / 实验操纵零触碰。
+
+- **FI-02 上限截断不再无声交付半截产物**：
+  - `_llm_stream` 捕获 SSE `finish_reason=length` → `last_truncated`；
+  - 执行上限按任务类型分档 `EXEC_MAX_TOKENS`：compose 1024 / analysis·general 320（旧值一律 220，起草常在句中掐停）；
+  - `judge_completion` 新增 `truncated` 判据：截断 = 有真实产出但不完整 → **partial**，绝不判达成；
+  - 任务条截断轮不打 ✓、注明「输出达上限被截断，未完整」；note 给「展开完整成果」补齐指引（复用既有 partial 行动出口）；
+  - `server.py` 结果卡全文上限 400→6000 字符（与 refine 同口径）；仍超限则如实标 truncated + note 说明——旧 400 上限会把 compose 长成果**二次截断且不告知**；
+  - `truncated` 全链透传：execute_done → 结果卡达成度文案 → 账本 exec.truncated → CSV 导出 `exec_truncated` 列。
+- **FI-07 伪造到达钩子加门**：`simulateArrival` / `setupTestArrival` 仅 `?test=1` 页面可用，
+  正常页调用直接拒绝（返回 false/0，账本零污染）；测试搭景轮**强制 `decorative=true`**
+  （沿用 v0.9.32 C 组正交标记语义：呈现一致、账本/导出/collectRealOutputs 单列，绝不混入 P1 真实结论）。
+  只读诊断钩子不受影响。19 个使用搭景钩子的回归脚本 URL 已补 `?test=1`。
+- **新回归**：`backend/test_truncation.py` 16/16（fake-SSE：length/stop 两态 × 判据/流捕获/execute 全链/分档上限）；
+  `verify_fi02_fi07.js` 13/13（真实后端+小模型端到端：compose 513 字完整交付 achieved；
+  正常页双钩子拒绝且账本零污染；?test=1 可用且 decorative=true；0 JS 错误）。
+- **既有回归**：后端 cancel 16/16、ws_lifecycle 14/14、expert_state 25/25、forecaster 29/29；
+  前端 honesty 5/5、opaque 22/22、keyboard 22/22、compare 27/27、cancel 33/33、timeline 42/42、
+  practical 16/16、scenery 21/21、arrival_persist 13/13、camera_diag、f32_link、future_travel、
+  driving_view、immersive 全绿。
+
+---
+
+## v0.9.49.3 · 2026-11-22 · 实测修复批次一：前端相对路径化（FI-05）+ 健康探针 OpenAI 兼容（FI-06）
+
+来源：[docs/FIELD-ISSUES.md](../docs/FIELD-ISSUES.md) 实测问题清单（博文制作过程端到端实跑发现）。
+本批为零红线触碰项：执行链语义、3D 几何、中断态、实验操纵全部不动。
+
+- **FI-05 前端相对路径化**：`index.html` 7 处硬编码 `localhost:8770` 清零——
+  `WS_URL` 由 `location` 推导（`https:` 自动 `wss:`；`file://` 直开回退本机 8770 保持静态预览可用）；
+  6 处 REST fetch 改相对路径 `/api/…`。后端换端口 / 反代 / 域名 / HTTPS / 局域网被试访问均零配置。
+  验证：非默认端口 8890 起后端，页面零配置连上 WS + REST，真实模型完整走一轮
+  （source=llm / 48 tokens / 0 JS 错误，API 请求 host 全部跟随页面 host）。
+- **FI-06 健康探针补 OpenAI `/models`**：`server.py` `health()` 探针链追加 `{base}/models`
+  （带 Bearer 鉴权头、只读列表不占推理槽），Ollama / vLLM / 云端端点不再误报 `llm_service: unknown`，
+  如实报 `openai_compat`。回环直连绕代理逻辑同时修正为仅回环强制直连（远程端点尊重系统代理，
+  与 `/api/config/llm/test` 口径一致）。验证：Ollama 后端下 `/api/health` 报 `openai_compat`。
+- **回归**：后端 `test_cancel_backend` 16/16、`test_ws_lifecycle` 14/14、`test_expert_state` 25/25、
+  forecaster pytest 29/29；前端 `test_honesty` 5/5（20 牌）、`verify_opaque` 22/22、
+  `test_keyboard` 22/22、`test_compare` 27/27、`test_cancel` 33/33、`test_timeline` 42/42、
+  `test_practical` 16/16、`test_scenery` 21/21、`test_camera_diag` ALL_PASS、
+  `test_future_travel` 3 轮探索链无死路。
+- **已知环境项（非本批引入，基线复测确认）**：`test_e2e` / `test_e2e_b` 的「到达/未来牌投影不稳定」
+  软性观察项在本改动前的基线代码上同样失败（stash 对照验证）；`test_e2e` 顺序链依赖 35B 级模型
+  的任务拆分质量，小模型（gemma3:1b）环境下不具判定力。两者均与相对路径化无关，如实记录不掩盖。
+
+> **合并注（v0.9.50 双线）**：本版本历史上有两条并行开发线，均基于 v0.9.49.2 分叉，合入时按日期倒序并列保留——下方 11-22「FI-01 事件驱动执行行驶」来自远端主线，11-20「真实界面走查修复」为界面实证批次；二者改动文件不同、互不覆盖。
+
 ## v0.9.50 · 2026-11-20 · 真实界面走查修复批次：候选叠牌/面板吞牌/到达空屏/贴脸光斑/重铺漂移
 
 用户要求「真正看系统的界面表现，而不是只看代码逻辑」。用真实 Chromium + playwright-core

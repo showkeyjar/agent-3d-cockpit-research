@@ -205,30 +205,44 @@ const check = (name, ok, extra = '') => {
   console.log(`  · 是否进入第二次执行态（done=false）=${entered}`);
   let afterCancel = { skipped: !entered };
   if (entered){
-    await page.waitForTimeout(2500); // 让真实流式跑 2.5s
+    // FI-01 时序适配：小模型可能瞬间生成完（done=true），此时 stop 是「迟到取消」，
+    // 如实记 done + cancel_late，不是中断——v0.9.16 既有契约。
+    // 等到「真实在生成」（有 token 且未 done）再取消；最多等 8s，等不到按迟到取消分支验。
+    await page.waitForFunction(() => {
+      const d = window.__cockpit.execDriveState;
+      return window.__cockpit.execState.done || (d.active && d.chars > 0 && !d.done);
+    }, null, { timeout: 8000 }).catch(() => {});
     const beforeCancel = await page.evaluate(() => ({ done: window.__cockpit.execState.done, kbGroup: window.__cockpit.kbGroup }));
     await page.evaluate(() => window.__cockpit._stopGen());   // 真实 cancel → 后端 abort 流式
     await page.waitForFunction(() => window.__cockpit.execState.done === true, null, { timeout: 30000 }).catch(() => {});
-    afterCancel = await page.evaluate((before) => {
+    afterCancel = await page.evaluate((args) => {
+      const { before, wasDone } = args;
       const runs = window.__cockpit.runs;
       const second = runs[before] || {};   // runCountBefore 之后的那条 = 第二次执行的 run
       return {
         totalRuns: runs.length,
         secondSeq: second.seq,
         secondStatus: second.status,
+        wasAlreadyDone: wasDone,
         interruptedFlag: second.status === 'interrupted',
         // 中断态按 v0.9.16 不变量：结果卡应显示（琥珀色 + 部分文本 + 中断徽章），但必须标 interrupt 而非伪装完成；
         // 不铺「3D 到达牌 / 不推进主轴」才是真正的不变量，故查中断说明文案而非结果卡开关。
         interruptText: window.__cockpit.interruptBarText,
         arrivalShown: window.__cockpit.resultCardOpen,
       };
-    }, runCountBefore);
+    }, { before: runCountBefore, wasDone: beforeCancel.done });
   }
-  if (entered){
+  if (entered && !afterCancel.wasAlreadyDone){
     check('P0 中途取消后进入中断态（interrupted，非 done/failed 伪装）',
       afterCancel.interruptedFlag, JSON.stringify(afterCancel));
     check('P0 中断如实标注（结果卡显示中断说明，不伪装成已完成）',
       (afterCancel.interruptText || '').length > 0, `interrupt="${afterCancel.interruptText}" arrivalShown=${afterCancel.arrivalShown}`);
+  } else if (entered){
+    // 生成已完成后的迟到取消：done 是事实，不算伪装（v0.9.16 cancel_late 契约）。
+    check('P0 迟到取消如实记 done（生成已完成，非中断）',
+      afterCancel.secondStatus === 'done', JSON.stringify(afterCancel));
+    check('P0 迟到取消不伪造中断说明',
+      (afterCancel.interruptText || '').length === 0, `interrupt="${afterCancel.interruptText}"`);
   } else {
     check('P0 中途取消后进入中断态（第二次执行未成功发起，驱动时序问题，非产品缺陷；详见 test_cancel.js 33 项已覆盖真实 abort）', false, JSON.stringify(afterCancel));
   }

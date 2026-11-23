@@ -132,6 +132,32 @@ def main():
     check(all(not d.get("topic_bound") for d in mout),
           "落到诚实分支，不假装理解了业务", [d["label"] for d in mout])
 
+    print("\n[I] FI-04 长指令句：数量词残片 / 动宾半句 / 指令壳词不上牌")
+    long_cases = [
+        "写一段150字左右的产品说明：包含实时天气、逐小时预报、生活指数三个模块，说明各自展示什么信息，用中文",
+        "为一个天气应用首页写一段150字左右的产品说明，介绍页面包含哪些模块、如何显示实时天气和未来预报，用中文回答",
+        "帮我做一个天气应用首页：先出可运行页面，再补数据接入",
+    ]
+    FRAG = ("字左右", "一段", "些模块", "用中文", "用英文", "左右")
+    for c in long_cases:
+        ph = LLMCandidateSampler._extract_business_phrases(c)
+        check(not any(f in p for p in ph for f in FRAG),
+              f"短语无数量词/壳词残片：{c[:14]}", ph)
+        check(not any("生活指" in p and "生活指数" not in p for p in ph),
+              f"「指数」不被计数尾剥成「生活指」：{c[:14]}", ph)
+        labels = [d["label"] for d in LLMCandidateSampler._local_forecast(c, 5)]
+        check(not any(f in l for l in labels for f in FRAG),
+              f"路牌无碎片词：{c[:14]}", labels)
+    # 业务对象保留断言（质量门不能把真主题也滤掉）
+    ph1 = LLMCandidateSampler._extract_business_phrases(long_cases[0])
+    check("实时天气" in ph1 and "逐小时预报" in ph1 and "生活指数" in ph1,
+          "三个真实模块名全部保留", ph1)
+    ph2 = LLMCandidateSampler._extract_business_phrases(long_cases[1])
+    check("天气应用首页" in ph2, "计数头剥离后业务对象保留", ph2)
+    # 既有边界不回归
+    check(LLMCandidateSampler._extract_business_phrases("中长期交易与用户侧结算规则")
+          == ["中长期交易", "用户侧结算规则"], "「中长期/用户侧」边界不回归")
+
     print("\n" + "=" * 56)
     if FAILS:
         print(f"v0.9.24 主题绑定回归：{len(FAILS)} 项失败")

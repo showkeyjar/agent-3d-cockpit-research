@@ -18,7 +18,7 @@ async function main() {
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('favicon')) errors.push('CONSOLE: ' + m.text()); });
 
-  await page.goto('http://localhost:8770/', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:8770/?test=1', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
   // ── 场景：搭景（到达牌 + 3 未来路牌），车在 [8,0,8] ──

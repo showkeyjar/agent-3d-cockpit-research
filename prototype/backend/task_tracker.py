@@ -116,15 +116,17 @@ def _rating_means_need_input(self_rating: str) -> bool:
 
 
 def judge_completion(*, clarify: bool = False, interrupted: bool = False,
-                     ok: bool = False, source: str = "", output: str = "") -> str:
+                     ok: bool = False, source: str = "", output: str = "",
+                     truncated: bool = False) -> str:
     """规则判据：这一步对用户目标而言达成到什么程度。
-    只依据已确定字段判断，不调用模型、不猜测——P1 账本可复算。"""
+    只依据已确定字段判断，不调用模型、不猜测——P1 账本可复算。
+    FI-02：truncated（finish_reason=length 上限截断）= 有真实产出但不完整 → partial。"""
     if clarify:
         return COMPLETION_NEED_INPUT
     if interrupted:
         return COMPLETION_PARTIAL
     text = (output or "").strip()
-    if ok and source == "llm" and text:
+    if ok and source == "llm" and text and not truncated:
         return COMPLETION_ACHIEVED
     return COMPLETION_PARTIAL
 
@@ -402,8 +404,12 @@ class AgentExecutor:
 
         v0.9.16：cancel_event 被 set 时立即 resp.close() 断开连接（真正中止
         模型生成），把中断前已生成的真实文本作为部分结果返回，reason='interrupted'。
+
+        FI-02（v0.9.49.4）：SSE 里 finish_reason=='length' 时置 self.last_truncated
+        ——上限截断是「有真实产出但不完整」，调用方须如实标 partial，不得宣告达成。
         """
         parts: List[str] = []
+        self.last_truncated = False
         try:
             sess = await self._get_session()
             async with sess.post(
@@ -459,6 +465,10 @@ class AgentExecutor:
                     choices = obj.get("choices") or []
                     if not choices:
                         return True
+                    # FI-02：上限截断如实记录——finish_reason=length 表示模型还有话
+                    # 没说完但被 max_tokens 掐停。产出真实但不完整，须标 partial。
+                    if choices[0].get("finish_reason") == "length":
+                        self.last_truncated = True
                     delta = (choices[0].get("delta") or {}).get("content")
                     if isinstance(delta, str) and delta:
                         # v0.9.41：首个真实内容 token 到达 = prefill 已完成、生成段开始。
@@ -591,6 +601,15 @@ class AgentExecutor:
         "error":       "模型调用出错，这一步没有产生成果",
     }
 
+    # FI-02（v0.9.49.4）：执行输出上限按任务类型分档。旧值一律 220 token——
+    # 起草类任务（产物就是文字）常在句子中间被掐停，却照常宣告「目标达成」。
+    # 起草给足篇幅；分析/通用维持短答（其价值在结论与索要输入，不在长文）。
+    # 即便给足上限仍触发 finish_reason=length，也如实标 partial + truncated。
+    EXEC_MAX_TOKENS = {"compose": 1024, "analysis": 320, "general": 320}
+
+    def _exec_max_tokens(self, kind: str) -> int:
+        return self.EXEC_MAX_TOKENS.get(kind, 320)
+
     async def execute(self, context: str, candidate_label: str,
                       planned_steps: Optional[List[str]] = None,
                       stream_sink=None, cancel_event=None,
@@ -691,6 +710,7 @@ class AgentExecutor:
         t0 = time.monotonic()
         text, reason = "", ""
         note = ""
+        truncated = False   # FI-02：finish_reason=length 上限截断标记
 
         # v0.9.41 内部状态指纹：只统计「生成段」的专家路由。
         # 诊断铁证：裸问题判别力 r=0.978，套上执行长模板后塌到 0.636——模板
@@ -753,9 +773,10 @@ class AgentExecutor:
                 return interrupted_result()
             if free:
                 text, reason = await self._llm_stream(
-                    final_prompt, max_tokens=220, on_chunk=on_chunk,
+                    final_prompt, max_tokens=self._exec_max_tokens(kind), on_chunk=on_chunk,
                     cancel_event=cancel_event,
                     on_first_token=cap_before, on_generation_done=cap_after)
+                truncated = bool(getattr(self, "last_truncated", False))
                 if reason == "interrupted":
                     return interrupted_result()
                 # 校验：模型有时仍把任务推回给用户（"建议您访问某某网站"）。
@@ -778,9 +799,10 @@ class AgentExecutor:
                         expert_before = None
                         expert_after = None
                     text2, reason2 = await self._llm_stream(
-                        harder, max_tokens=220, on_chunk=on_chunk,
+                        harder, max_tokens=self._exec_max_tokens(kind), on_chunk=on_chunk,
                         cancel_event=cancel_event,
                         on_first_token=cap_before, on_generation_done=cap_after)
+                    truncated = bool(getattr(self, "last_truncated", False))
                     if reason2 == "interrupted":
                         return interrupted_result()
                     # v0.9.49.2：以 reason 判定成败（错误进 reason，正文 "[" 开头合法）
@@ -823,11 +845,18 @@ class AgentExecutor:
 
         # v0.9.49.2：reason 为空 = 模型真实文本（流式调用早已结构化返回错误；
         # 此前的 startswith("[") 哨兵会误杀 "[草案] 一、…" 这类合法开头正文）。
+        # FI-02：truncated（finish_reason=length）时产出真实但不完整——任务条
+        # 不打 ✓，note 如实说明，completion 判 partial，前端给「展开补齐」出口。
+        truncated = bool(text) and truncated
         if text and not reason:
             summary = text[:80].replace("\n", " ").strip()
-            self.tracker.mark_done("output", f"{summary} ✓")
+            self.tracker.mark_done(
+                "output",
+                f"{summary} …（输出达上限被截断，未完整）" if truncated else f"{summary} ✓")
             source = "llm"
             output = text
+            if truncated and not note:
+                note = "输出达到长度上限被截断，成果不完整；可用「展开完整成果」补齐"
         else:
             # 诚实降级：任务条如实写「没有产生成果」，不进任何假完成文案。
             self.tracker.mark_done(
@@ -846,7 +875,8 @@ class AgentExecutor:
             "reason": "" if source == "llm" else (reason or "llm_failed"),
             "task_kind": kind,
             "completion": judge_completion(
-                ok=True, source=source, output=output),
+                ok=True, source=source, output=output, truncated=truncated),
+            "truncated": truncated,
             "tokens": tokens_est,
             "elapsed_ms": elapsed_ms,
             "note": note,

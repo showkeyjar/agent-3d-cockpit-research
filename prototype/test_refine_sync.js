@@ -16,7 +16,7 @@ const CHROME = resolveChromePath();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto('http://127.0.0.1:8770/', { waitUntil: 'load' });
+  await page.goto('http://127.0.0.1:8770/?test=1', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__cockpit && window.__cockpit._injectRefineDone, null, { timeout: 20000 });
 
   const results = [];
