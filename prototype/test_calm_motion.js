@@ -44,6 +44,9 @@ async function main() {
   check('A4 静止态到达牌光晕 opacity 恒定（无呼吸）',
     samples[0].glowOp !== null && uniq('glowOp') === 1,
     samples.map(s => s.glowOp).join(','));
+  check('A5 静止态「现在」分界环 scale 恒定（无呼吸，v0.9.54）',
+    samples[0].nowScaleX !== null && Math.abs(samples[0].nowScaleX - 1) < 0.001 && uniq('nowScaleX') === 1,
+    samples.map(s => s.nowScaleX).join(','));
 
   // ── B. CSS 结果卡无 infinite 呼吸，但保留一次性入场 rcIn ──
   const css = await page.evaluate(() => {

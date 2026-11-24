@@ -35,6 +35,13 @@ JS_TESTS=(
   test_fp_arrival_rebuild.js  # v0.9.47 指纹环时序/放大
   test_terminal_task.js       # v0.9.48 类型分流+终态（断死循环）
   test_arrival_persist.js     # v0.9.49 到达结果牌保留+拉近下限
+  # v0.9.50–54 FI 修复 + 体验回归（GPT 评审 #5：默认入口此前漏跑）
+  test_exec_drive.js          # FI-01 事件驱动行驶（含 A0 无事件静止）
+  test_future_refine.js       # FI-03 探索环异步精修
+  test_fi09.js                # FI-09 触屏长按 + 单槽等待
+  test_i18n.js                # FI-08 多语言
+  test_calm_motion.js         # v0.9.53/54 静默动效 + 分界环静态化
+  test_link_tint_pixel.js     # v0.9.55 B0/B1 联动判据【像素层】有效性
 )
 
 fail=0
@@ -49,11 +56,47 @@ for t in "${JS_TESTS[@]}"; do
 done
 
 echo ""
-echo "== 后端 Python 单测 =="
+echo "== 后端 Python 单测（pytest 收集纯函数）=="
 if command -v pytest >/dev/null 2>&1; then
-  pytest -q forecaster/tests/ backend/test_cancel_backend.py || fail=$((fail+1))
+  pytest -q forecaster/tests/ || fail=$((fail+1))   # cancel_backend 由下方 __main__ 直跑段负责
 else
   echo "（未装 pytest，跳过；进入 prototype 目录用 python -m pytest forecaster/tests/ backend/ 手动跑）"
+fi
+
+# GPT 评审 #5：以下后端契约脚本通过 if __name__=='__main__' 自行运行，pytest 不收集其 main 逻辑。
+#   此前默认回归漏跑，导致"29 项通过"覆盖不到取消/断线/截断/专家状态等真实契约。
+#   全部是纯本地（假推理服务/纯函数），不占 8083 模型槽。
+#   test_cancel_e2e.py 依赖真实 35B，是可选冒烟，不进默认回归。
+# 选一个装了 aiohttp 的解释器：这些契约脚本用本地假推理服务（aiohttp），系统 python 可能没装。
+#   优先 PYTHON 环境变量 → 常见 Windows 开发路径 → python3/python；逐个探测 import aiohttp。
+PY=""
+for cand in "${PYTHON:-}" "D:/tools/Python312/python" "python3" "python"; do
+  [ -z "$cand" ] && continue
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c "import aiohttp" >/dev/null 2>&1; then
+    PY="$cand"; break
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "（未找到装 aiohttp 的 Python 解释器，跳过 __main__ 契约脚本；请设 PYTHON=路径重跑）"
+fi
+echo ""
+echo "== 后端契约脚本（__main__ 直跑，pytest 不收集；PY=$PY）=="
+PY_SCRIPTS=(
+  backend/test_cancel_backend.py   # v0.9.16 cancel/abort 契约
+  backend/test_ws_lifecycle.py     # v0.9.49.2 WS 断开收尾
+  backend/test_truncation.py       # FI-02 上限截断如实标注
+  backend/test_expert_state.py     # 专家状态采集纯函数
+)
+if [ -n "$PY" ]; then
+  for s in "${PY_SCRIPTS[@]}"; do
+    echo "===== $s ====="
+    if "$PY" "$s"; then
+      echo "  ✓ $s"
+    else
+      echo "  ✗ $s FAILED"
+      fail=$((fail+1))
+    fi
+  done
 fi
 
 echo ""

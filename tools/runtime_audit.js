@@ -77,6 +77,9 @@ async function runOnce(page, args) {
           reason: msg.reason,
           ok: msg.ok,
           output: msg.output || '',
+          // GPT 评审 #4：缺数据澄清终态需要这些字段才能正确判定
+          clarify: msg.clarify,
+          question: msg.question || '',
         });
         if (msg.type === 'execute_done') finish();
       };
@@ -104,8 +107,12 @@ function gapStats(times, name) {
   console.log(`  [${name}] 间隔(ms): n=${gaps.length} min=${sorted[0]} 中位=${median} 均值=${Math.round(mean)} max=${sorted[sorted.length - 1]} 散布(p90-p10)/中位=${spread}%`);
 }
 
-// 逐用例判定（GPT 评审：成功流式与预期降级分别断言终态、来源、有效输出）
-function verdict(events, total, timedOut) {
+// 逐用例判定（GPT 评审 #4：按 task_kind 与数据齐备度分三类预期终态，避免正确行为触发误报）
+//   expect='output'   —— 起草成功 / 给定数据分析：应有有效输出、chain=['output']
+//   expect='clarify'  —— 缺数据：应索要输入、chain=['clarify']、clarify=true（这是正确行为，非失败）
+//   expect='auto'     —— 让终态自行决定（兼容旧行为）：output 或 clarify 任一成立即可
+function verdict(events, total, timedOut, expect) {
+  expect = expect || 'auto';
   const done = events.find(e => e.type === 'execute_done');
   const tokens = events.filter(e => e.type === 'token');
   const tokenLen = tokens.reduce((a, e) => a + (e.text || '').length, 0);
@@ -120,13 +127,33 @@ function verdict(events, total, timedOut) {
   const srcOk = done.source === 'llm';
   checks.push({ name: 'source=llm', ok: srcOk, detail: `source=${done.source} reason=${done.reason || '(空)'}` });
 
+  // 缺数据澄清（GPT 评审 #4）：正确行为有两种呈现——
+  //   ① 结构化标志：chain=['clarify'] + clarify=true；
+  //   ② 文本语义：模型把"需要输入/请提供…"写进 output，但 chain 仍是 ['output']（小模型常见）。
+  //   两者都是"诚实索要输入"，都不该因"没有成果正文"误判 FAIL。
+  const flagClarify = Array.isArray(done.chain) && done.chain[0] === 'clarify' && done.clarify === true;
+  const textClarify = /(需要输入|请提供|请补充|缺少|需要提供|无法.{0,6}(分析|判断)|请给出)/.test(done.output || '') ||
+                      /(需要输入|请提供|请补充|缺少|请给出)/.test(done.question || '');
+  const isClarify = flagClarify || textClarify;
+  if (expect === 'clarify' || (expect === 'auto' && isClarify && !srcOk)) {
+    const qText = done.question || done.output || '';
+    checks.push({ name: '缺数据澄清（预期终态）', ok: isClarify,
+      detail: `chain=${JSON.stringify(done.chain)} clarify=${done.clarify} 文本判定=${textClarify}` });
+    checks.push({ name: '索要输入文本', ok: qText.length > 0, detail: `question/output=${qText.length}字: ${qText.slice(0,40)}` });
+    const allOk = checks.filter(c => c.name !== 'source=llm').every(c => c.ok);  // clarify 不强求 llm
+    return { verdict: allOk ? 'PASS' : 'FAIL', checks, tokens, tokenLen, done, kind: 'clarify' };
+  }
+
   if (srcOk) {
     const outLen = (done.output || '').length;
     const outOk = tokens.length > 0 && tokenLen > 0 && outLen > 0;
     checks.push({ name: '有效输出', ok: outOk, detail: `token=${tokens.length}条/${tokenLen}字 · output=${outLen}字` });
     checks.push({ name: 'chain 归因', ok: Array.isArray(done.chain) && done.chain.length === 1 && done.chain[0] === 'output', detail: `chain=${JSON.stringify(done.chain)}` });
+    if (expect === 'clarify'){   // 预期澄清却给了输出：算失败（判定预期设错或行为异常）
+      checks.push({ name: '预期澄清却产出结果', ok: false, detail: 'expect=clarify 但 chain=output' });
+    }
     const allOk = checks.every(c => c.ok);
-    return { verdict: allOk ? 'PASS' : 'FAIL', checks, tokens, tokenLen, done };
+    return { verdict: allOk ? 'PASS' : 'FAIL', checks, tokens, tokenLen, done, kind: 'output' };
   }
 
   // source=local：预期降级（诚实）vs 意外降级（失败）
@@ -160,16 +187,22 @@ async function main() {
   await page.goto('http://localhost:8770/', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(800);
 
+  // GPT 评审 #4：三类预期终态分开断言——缺数据=clarify，给定数据=output。
   const cases = [
-    { name: '3步规划链（路线B：单步真流式）', context: '帮我分析这个季度的销售数据，找出异常月份', label: '检索销售资料并分析', steps: ['检索销售相关资料', '整理分析结果', '给出异常月份结论'] },
-    { name: '1步链', context: '现在需要汇总各通道数据做日报', label: '汇总各通道数据', steps: ['整理各通道数据'] },
+    // 缺业务数据 → 正确行为是索要输入（clarify），不再因"没有成果正文"误判 FAIL。
+    { name: '缺数据分析（预期：澄清索输入）', expect: 'clarify',
+      context: '帮我分析这个季度的销售数据，找出异常月份', label: '检索销售资料并分析', steps: ['检索销售相关资料', '整理分析结果', '给出异常月份结论'] },
+    // 内嵌真实数据 → 预期产出结果（output）。覆盖"给定数据分析"终态。
+    { name: '给定数据汇总（预期：产出结果）', expect: 'output',
+      context: '以下是各通道本日数据：A通道 120/115/130万，B通道 88/91/79万，C通道 45/47/50万。请汇总成日报并指出异常。',
+      label: '汇总各通道数据', steps: ['整理各通道数据', '生成日报'] },
   ];
 
   let pass = 0, degraded = 0, fail = 0;
   for (const c of cases) {
-    console.log(`\n═══ ${c.name} ═══`);
+    console.log(`\n═══ ${c.name}（预期终态 ${c.expect}）═══`);
     const { events, total, timedOut } = await runOnce(page, c);
-    const v = verdict(events, total, timedOut);
+    const v = verdict(events, total, timedOut, c.expect);
     console.log(`事件序列（共 ${events.length} 条，总耗时 ${total}ms）:`);
     for (const ev of events) {
       const meta = ev.steps ? ` steps=${JSON.stringify(ev.steps)}` : '';

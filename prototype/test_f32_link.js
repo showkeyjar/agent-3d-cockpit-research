@@ -39,11 +39,11 @@ async function main() {
   const postShow = await page.evaluate(() => window.__cockpit._linkState());
   check('打开结果卡后卡片显示', postShow.cardShown === true, JSON.stringify(postShow));
   check('打开结果卡后联动牌已设置', postShow.hasActiveSign === true, JSON.stringify(postShow));
-  // v0.9.32 尺子修复：旧断言 glowOp > 0.15 恒真（通用呼吸下限就是 0.16），无鉴别力。
-  //   确定性判据是 planeOp：B1 组开卡联动抬升 plane = base 1.0 + 0.2 = 1.2，B0 组保持 1.0。
-  //   与 test_transparent_nolink.js（B0=1.0）互为镜像，两者共同构成 H1.1 单归因对照。
-  check('联动抬升生效（planeOp≈1.2，B0 组为 1.0）',
-    postShow.activeStats && Math.abs(postShow.activeStats.planeOp - 1.2) < 0.01,
+  // v0.9.55 尺子重修（GPT 评审 #2）：旧判据 planeOp 1.0/1.2 无效——opacity 被 shader clamp 到 1，
+  //   两组渲染像素完全相同（GPT 用 Three.js 复测证实）。新判据 = 牌面 color tint：B1 开卡点亮为暖白
+  //   ffd9a0，B0 保持纯白 ffffff。tint 真实参与片元着色、不受 clamp，且与像素复测一致。
+  check('联动点亮生效（planeTint=ffd9a0，B0 组为 ffffff）',
+    postShow.activeStats && postShow.activeStats.planeTint === 'ffd9a0',
     JSON.stringify(postShow.activeStats));
 
   // 3) _rcHide() 收起结果卡 → 联动牌清除

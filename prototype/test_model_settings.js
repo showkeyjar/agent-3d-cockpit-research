@@ -1,14 +1,12 @@
 // 模型设置面板回归：打开/加载/测试连接/保存/恢复默认。
 // 不消耗推理槽（测试探针只探 /health），秒级。用 LIVE 目录的 playwright-core。
 const path = require('path');
-// LIVE 目录由 COCKPIT_LIVE_DIR 环境变量指定；未设置时报错提示，不硬编码个人路径。
+// playwright-core 解析：优先用 COCKPIT_LIVE_DIR（异机/LIVE 跑），否则用本目录 node_modules。
+//   v0.9.55：去掉"未设 LIVE 就报错退出"——repo 同样装了 playwright-core，默认回归在 repo 跑应可直接用。
 const LIVE = process.env.COCKPIT_LIVE_DIR;
-if (!LIVE) {
-  console.error('错误：请设置 COCKPIT_LIVE_DIR 环境变量指向 LIVE 目录（例如 C:/Users/smith/WorkBuddy/.../agent-3d-cockpit）');
-  process.exit(2);
-}
-const { chromium } = require(path.join(LIVE, 'node_modules/playwright-core'));
-const { resolveChromePath } = require(path.join(LIVE, 'chrome_helper'));
+const MODULE_BASE = LIVE || __dirname;
+const { chromium } = require(path.join(MODULE_BASE, 'node_modules/playwright-core'));
+const { resolveChromePath } = require(path.join(MODULE_BASE, 'chrome_helper'));
 const EXE = resolveChromePath();
 
 let pass = 0, fail = 0;

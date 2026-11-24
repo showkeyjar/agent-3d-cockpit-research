@@ -7,6 +7,30 @@
 
 ---
 
+## v0.9.55 · 2026-11-23 · 回应 GPT 评审：修假进度 + 换有效联动判据 + 统一验收入口
+
+GPT 只读评审五项，逐条核实全部属实后修复。**核心是"验收方法"——测试通过不等于效果成立**：
+
+- **#1 [P1] 假前进**：无 execute_ack/token 时 `execDriveStep` 仍按时间累加 target（2.5s 空等 p=0→0.0087、chars=0）= 假进度，违背核心命题。改为 **`!started` 完全静止**，位移只由真实事件驱动（ack 起步/token 推进），等待耗时由 HUD 等待状态表达。`EXEC_DRIVE_IDLE_CREEP` 废弃。`test_exec_drive` 加 A0 段（6 采样 p/target/started 恒定）。
+- **#2 [P1] 联动判据无效**：旧 `plane.opacity = base(1)+0.2 = 1.2` 被 shader clamp 到 1，B0/B1 渲染像素完全相同（GPT 用 Three.js 复测证实）；测试读未 clamp 的 JS 属性才"通过" = 假判据。改用**牌面 color tint**：B1 联动点亮 `ffd9a0`、B0 保持 `ffffff`（隐藏结果卡时复位）；tint 真实参与片元着色。`_linkState()` 加 `planeTint`，f32_link/transparent_nolink 判据改验 tint；新增 **`test_link_tint_pixel.js` 用 page.screenshot 验证真实像素差异**（实测 ΔRGB≈31）。
+- **#3 [P2] 测试当依据**：`UX-INTERFERENCE-AUDIT.md` 二次更正——"有显示测试"仅证装置/判据存在，**不证**元素帮助用户理解或分散注意力；速度线/星点/点云/联动反馈标为【待验证设计】，取舍须靠真人指标（任务完成时间/误操作率/理解准确率），遵【装置层≠假设层】纪律。
+- **#4 [P2] 审计判定**：`tools/runtime_audit.js` 按三类预期终态判定（起草成功/给定数据=output，缺数据=clarify）；clarify 兼容结构化标志（chain=clarify+clarify=true）与文本语义（"请提供/需要输入…"），正确索要输入不再误判 FAIL。两用例分别设缺数据/内嵌数据，实测 PASS=2/FAIL=0。
+- **#5 [P2] 回归入口**：`run_regression.sh` 补入 exec_drive/future_refine/fi09/i18n/calm_motion/link_tint_pixel，并新增 `PY_SCRIPTS` 段直跑 4 个 `__main__` 后端契约脚本（cancel_backend/ws_lifecycle/truncation/expert_state，pytest 不收集其 main）。cancel_e2e 依赖真 35B 保持可选。两处入口坑现场修复：① PY 解释器自动探测（须装 aiohttp，系统 python 无→取 D:/tools/Python312/python）；② `test_model_settings.js` 去掉"未设 COCKPIT_LIVE_DIR 就报错退出"，优先用本地 node_modules（repo 已装）→ 默认回归在 repo 可直接跑。
+  - **既有 flake 复核**：完整回归里 rail_camera/model_settings/keyboard 曾失败；model_settings 已由入口修复转 10/10；rail_camera 单独跑 14/14、keyboard C4/E3 经 HEAD 基线对照两版同失败（桩 WS 竞态，测试头已有标注）——均非本次引入。本轮改动相关测试 11/11 + 像素 5/5 + runtime_audit PASS 2/0 + 4 PY 脚本全过。
+
+研究装置（B0/B1 操纵本身、F3.6/F3.7、指纹环）未删改，只修判据与验收。原型其余机制零改动。
+
+---
+
+## v0.9.54 · 2026-11-23 · 静默动效补完：静态化「现在」分界环双环呼吸
+
+用户产品原则定调（"用户带问题来、要快速解决；关注点清晰不模棱两可；图像文字感知同等重要；注意力不能被干扰；google/chatgpt 没有多余花里胡哨"）→ 对 `docs/UX-INTERFERENCE-AUDIT.md` 干扰项清单逐项核实实验依据，结论：**清单多数项都有实验依据，按用户"有实验依据的可以保留"全部保留**：
+- 星点/语义风景点云/概念卡 = F3.7 密度控制器判据对象（`test_f37_density`）；速度线 = F3.6 视野体验（`test_f36_speedlines`）；linkPulse 联动发光 = B0/B1 联动操纵 + `plane.opacity` 判据载体（`test_f32_link` / `test_transparent_nolink`，B1=1.2/B0=1.0）；结果五重编码/候选三重/来源五处/HUD 分别承载 P0 判据/跨轮次账本/P2 诚实性/P1–P4 HUD 装置；兜底套话文案有 `test_race` 覆盖且属文案层非本轮视觉议题。
+- **唯一无实验依据、又违反"不要呼吸浮动"的**：nowMarker「现在」分界环双环 `sin(t*1.8)*0.08` 呼吸 → 静态化（scale 恒 1）。**think-ring 脉动保留**——它是"正在想"的真实状态反馈（仅推演/执行期 visible），属有信息指示。
+- 钩子 `_motionState()` 加 `nowScaleX`，`test_calm_motion` 加 A5 断言防回退。原型其余机制零改动；B0/B1/F3.6/F3.7 判据不受影响。
+
+---
+
 ## v0.9.53 · 2026-11-23 · 静默动效：去掉抖动与呼吸浮动，重视体验非炫酷
 
 用户实测反馈「不需要这种跑动或抖动的效果，更应该重视用户体验，而不是表面炫酷」，

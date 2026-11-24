@@ -51,14 +51,14 @@ async function main() {
   // v0.9.32 尺子修复：旧断言 glowOp ≤ 0.15 是假断言——
   //   glow 是 sin 驱动的持续呼吸（0.16+pulse*0.3），实测 B0 在 0.194~0.46、B1 在 0.205~0.698，
   //   两组分布重叠，glowOp 无鉴别力（且恒 >0.15，永远判 FAIL）。
-  //   确定性的组间差异在 plane：产品 animate 中联动抬升写 plane.opacity = baseOpacity + 0.2，
-  //   且该分支被 !window._transparentNoLink 门控。B0 开卡后 planeOp 保持 base=1.0，B1=1.2。
-  //   plane 不走 sin、无时序波动，是可复算判据；与 test_f32_link.js（B1=1.2）互为镜像。
+  //   v0.9.55 尺子重修（GPT 评审 #2）：旧 planeOp 1.0/1.2 判据因 shader clamp 无效（像素相同）。
+  //   新判据 = 牌面 color tint：B1 开卡点亮 ffd9a0，B0 被 !_transparentNoLink 门控→保持 ffffff。
+  //   tint 真实参与渲染；与 test_f32_link.js（B1=ffd9a0）互为镜像。
   const linkState = await page.evaluate(() => window.__cockpit._linkState());
   check('结果卡已打开', linkState.cardShown === true, JSON.stringify(linkState));
   check('联动牌仍被设置（有结果对应到达牌）', linkState.hasActiveSign === true, JSON.stringify(linkState));
-  check('B0 组联动抬升被门控关闭（planeOp≈1.0，B1 组为 1.2）',
-    linkState.activeStats && Math.abs(linkState.activeStats.planeOp - 1.0) < 0.01,
+  check('B0 组联动点亮被门控关闭（planeTint=ffffff，B1 组为 ffd9a0）',
+    linkState.activeStats && linkState.activeStats.planeTint === 'ffffff',
     JSON.stringify(linkState.activeStats));
 
   // 6) 收起结果卡

@@ -42,6 +42,21 @@ const drive=p=>p.evaluate(()=>({d:window.__cockpit.execDriveState,rail:window.__
 (async()=>{
  const b=await chromium.launch({headless:true,executablePath:CHROME});
 
+ console.log('\n=== A0. 无 ack/token 时静止待命（GPT 评审 #1，v0.9.55）===');
+ {
+  const {p,errs}=await newPage(b);
+  await p.evaluate(()=>{window.__cockpit._beginExec(0);window.__cockpit._startExecDriveForTest(0);});
+  // 只出发、不注入 execute_ack / token；等待 2.5s 观察进度
+  const samples=[];
+  for(let i=0;i<6;i++){ await sleep(420); const s=await drive(p); samples.push({p:s.d.p,target:s.d.target,started:s.d.started,chars:s.d.chars}); }
+  ok('A0-1 全程无 started（无 ack/token）',samples.every(x=>x.started===false),JSON.stringify(samples.map(x=>x.started)));
+  ok('A0-2 全程 chars=0',samples.every(x=>x.chars===0));
+  ok('A0-3 等待 2.5s 进度恒为 0（无假前进）',samples.every(x=>x.p===0),JSON.stringify(samples.map(x=>x.p)));
+  ok('A0-4 target 不被时间累加',samples.every(x=>x.target===0),JSON.stringify(samples.map(x=>x.target)));
+  ok('A0-5 0 JS 错误',errs.length===0,errs.slice(0,2).join(';'));
+  await p.close();
+ }
+
  console.log('\n=== A/B/C. token 驱动巡航 → done 落位 ===');
  {
   const {p,errs}=await newPage(b);
