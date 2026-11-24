@@ -42,6 +42,10 @@ JS_TESTS=(
   test_i18n.js                # FI-08 多语言
   test_calm_motion.js         # v0.9.53/54 静默动效 + 分界环静态化
   test_link_tint_pixel.js     # v0.9.55 B0/B1 联动判据【像素层】有效性
+  # v0.9.56 新定位落点：思考辅助 / 思维导图生成（只读投影，不改账本）
+  test_cross_turn_metrics.js  # 跨轮三层不同步探针（Q-b 的数据前提）
+  test_view_horizon.js        # Q-b 语义视野边界可视化（20 项）
+  test_mindmap_export.js      # 分叉树 → 思考地图 .md 导出（19 项）
 )
 
 fail=0

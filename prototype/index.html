@@ -648,6 +648,14 @@ body.immersive #immersiveHud{display:block;opacity:1;}
   .tt-text{font-size:11.5px;line-height:1.55;color:var(--text);word-break:break-word;}
   .tt-meta{font-size:10px;color:var(--muted);margin-top:3px;}
   .tt-empty{color:var(--muted);font-size:11px;line-height:1.6;padding:8px 0;}
+  /* v0.9.56 Q-b：语义视野边界——纯只读投影，不改账本/机位/执行链 */
+  .tt-legend{font-size:10px;line-height:1.6;color:var(--muted);padding:0 0 8px 32px;}
+  .tt-row.run.outside .tt-dot{opacity:.5;border-style:dashed;}
+  .tt-horizon{display:inline-block;font-size:9px;padding:1px 6px;border-radius:4px;
+    margin-left:6px;border:1px solid var(--border);white-space:nowrap;}
+  .tt-horizon.in{color:#8ff5c6;border-color:rgba(52,245,160,.42);}
+  .tt-horizon.out{color:#ffd9a3;border-color:rgba(255,177,61,.48);}
+  .tt-horizon.never{color:var(--muted);}
   .tl-strip{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;flex:none;
     border-bottom:1px solid var(--border);}
   .tl-node{flex:none;width:190px;border-radius:9px;border:1px solid var(--border);
@@ -1165,6 +1173,7 @@ body.immersive #immersiveHud{display:block;opacity:1;}
     <button type="button" id="tlExportJson" class="primary" title="导出逐轮完整凭据（研究数据）">导出 JSON</button>
     <button type="button" id="tlExportCsv" title="导出平坦字段，便于量表统计">导出 CSV</button>
     <button type="button" id="tlExportDeliver" title="v0.9.31：把本次旅程所有真实成果汇总成一份可带走的 .md（区别于研究数据导出）">汇总成果 .md</button>
+    <button type="button" id="tlExportMindmap" title="v0.9.56：把语义分叉树 + 会话账本导出为可编辑思考地图（Mermaid 脑图 + Markdown 大纲，只读投影）">思考地图 .md</button>
     <button type="button" id="tlSynthesize" title="v0.9.35：把所有真实成果综合成一份可直接交付的最终答案（真实再次生成，非逐轮拼接）">✦ 生成综合答案</button>
     <button type="button" id="tlThreadBtn" title="v0.9.37：按时间交织显示 问题→补充→执行轮，直观看会话连续性">会话脉络</button>
     <button type="button" id="tlClose" title="关闭">×</button>
@@ -2777,7 +2786,7 @@ const COMPLETION_META = {
   partial:    { text:'部分达成', color:'#ffd23f', bg:'rgba(255,210,63,.10)' },
   need_input: { text:'待补输入', color:'#ffb13d', bg:'rgba(255,177,61,.10)' },
 };
-const TL_VERSION = 'v0.9.55';
+const TL_VERSION = 'v0.9.56';
 const TL_SESSION_STARTED = new Date().toISOString();
 
 /* ── v0.9.40 · 内部状态指纹凭据层（2D，诚实降级）─────────────────────
@@ -3234,6 +3243,18 @@ function digestRealRuns(){
 // 纯派生元数据（由 _runs 内容 + tail 算法决定），不参与完成度/门控/主轴任何判定——不是完成信号。
 function digestKeptSeqs(){
   return digestRealRuns().slice(-6).map(r => r.seq);
+}
+// Q-b（v0.9.56）：某真实轮从「哪一轮收尾起」掉出 buildSessionDigest 视野。
+// 只读派生：逐条查各轮收尾时记下的 digest_kept_seqs（Q-d 已入账本的投影），
+// 找到第一个不再含该 seq 的轮次；从未入视野或仍在视野返回 null。
+// 不参与 status/completion/门控/主轴任何判定——不是完成信号，只是可追溯标记。
+function digestDropSeq(seq){
+  for (const r of _runs){
+    if (r.seq <= seq) continue;
+    const kept = Array.isArray(r.digest_kept_seqs) ? r.digest_kept_seqs : null;
+    if (kept && !kept.includes(seq)) return r.seq;
+  }
+  return null;
 }
 function buildSessionDigest(){
   try {
@@ -6318,6 +6339,10 @@ function recordRun(detail, status){
 function renderSessionThread(){
   const box = document.getElementById('tlThread');
   if (!box) return;
+  // Q-b（v0.9.56）：当前视野 = digest 单一真相源（digestRealRuns().slice(-6)）。
+  // 只读投影：既不改 _runs，也不改 digest 内容，只把已有信息显式标在脉络上。
+  const keptNow = new Set(digestKeptSeqs());
+  const realSeqs = new Set(digestRealRuns().map(r => r.seq));
   const rows = [];
   _sessionEvents.forEach(e => rows.push({ ts:e.ts, kind:e.kind, ...e }));
   _runs.forEach(r => rows.push({ ts:r.ts, kind:'run', run:r }));
@@ -6326,7 +6351,10 @@ function renderSessionThread(){
     box.innerHTML = '<div class="tt-empty">还没有会话记录。发送一个问题或补充信息后，这里会按时间顺序显示「提问 → 补充 → 执行轮」的完整脉络，方便看清上下文是否连续。</div>';
     return;
   }
-  box.innerHTML = rows.map(row => {
+  const legend = '<div class="tt-legend">「模型视野」= 下次提问时会话摘要实际带上的最近 6 个真实轮'
+    + '（只读投影，不改账本与执行）。虚线圆点 = 该轮已不在模型视野内，需要时可重提；'
+    + '演示/综合/兜底轮不进入摘要。</div>';
+  box.innerHTML = legend + rows.map(row => {
     let dot='?', cls='', kind='', text='', meta='';
     if (row.kind === 'question'){
       dot='问'; cls='question'; kind='用户提问';
@@ -6337,8 +6365,19 @@ function renderSessionThread(){
     } else if (row.kind === 'run'){
       const r=row.run, m=r.exec||{};
       dot=String(r.seq); cls='run '+(r.status||'');
+      let horizon = '';
+      if (!realSeqs.has(r.seq)){
+        horizon = '<span class="tt-horizon never">不进入语义摘要</span>';
+      } else if (keptNow.has(r.seq)){
+        horizon = '<span class="tt-horizon in">模型视野内</span>';
+      } else {
+        const drop = digestDropSeq(r.seq);
+        cls += ' outside';
+        horizon = `<span class="tt-horizon out">已掉出模型视野${drop ? `（第${drop}轮起）` : ''}</span>`;
+      }
       kind=`第 ${r.seq} 轮 · ${tlStatusText(r.status)}`
-         + (m.completion ? ` · 达成度 ${escHtml((COMPLETION_META[m.completion]||{}).text||m.completion)}` : '');
+         + (m.completion ? ` · 达成度 ${escHtml((COMPLETION_META[m.completion]||{}).text||m.completion)}` : '')
+         + horizon;
       text=escHtml(r.label ? `沿「${r.label}」：` : '')
          + escHtml(oneLineConclusion(r));
       meta=`执行来源 ${escHtml(m.source||'—')}${m.elapsed_ms!=null?' · '+tlFmtMs(m.elapsed_ms):''}`
@@ -6757,6 +6796,121 @@ function exportAllDeliverables(){
 document.getElementById('tlExportDeliver')?.addEventListener('click', exportAllDeliverables);
 document.getElementById('tlSynthesize')?.addEventListener('click', startSynthesize);
 document.getElementById('tlThreadBtn')?.addEventListener('click', () => setTlView(_tlView === 'thread' ? 'runs' : 'thread'));
+
+/* ── v0.9.56 思考地图导出（新定位落点：可视化=思考辅助/思维导图）─────────
+   把界面里「已经存在」的语义分叉树（候选 + clusters）与会话账本
+   （_runs + _sessionEvents + Q-b 视野投影）导出成可编辑的 .md：
+   ① Mermaid 脑图块（支持 mindmap 的 Markdown 阅读器可直接渲染）
+   ② Markdown 大纲（任何编辑器都能改）
+   ★ 纯只读投影：不写账本、不新增完成信号、不碰 3D/机位/执行链；
+     也不声称「用户思考因此更好」——那属 [真人] 待验。 */
+function _mmSafe(s, max){
+  return String(s || '').replace(/[\r\n]+/g, ' ')
+    .replace(/[\[\]{}()<>"'`|:;,*#_\\]/g, '')
+    .replace(/\s+/g, ' ').trim().slice(0, max || 26) || '未命名';
+}
+function _mdOne(s){
+  return String(s || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function buildMindmapText(){
+  const cs = Array.isArray(_currentCandidates) ? _currentCandidates : [];
+  const runs = Array.isArray(_runs) ? _runs : [];
+  const events = Array.isArray(_sessionEvents) ? _sessionEvents : [];
+  if (!cs.length && !runs.length && !events.length) return '';
+  const kept = new Set(digestKeptSeqs());
+  const realSeqs = new Set(digestRealRuns().map(r => r.seq));
+  const walked = label => {
+    const name = String(label || '').trim();
+    return !!name && runs.some(r => String(r.branch_label || r.label || '').includes(name));
+  };
+  // 簇分组：与 v0.9.38 3D 分叉同源（后端 clusters 优先，未覆盖候选各自成簇）
+  const groups = [], seen = new Set();
+  const rawClusters = _lastForecastMeta && _lastForecastMeta.clusters;
+  if (Array.isArray(rawClusters)){
+    for (const g of rawClusters){
+      const members = (Array.isArray(g) ? g : [])
+        .filter(i => Number.isInteger(i) && i >= 0 && i < cs.length && !seen.has(i));
+      if (members.length){ members.forEach(i => seen.add(i)); groups.push(members); }
+    }
+  }
+  for (let i = 0; i < cs.length; i++) if (!seen.has(i)) groups.push([i]);
+
+  const root = _mmSafe((runs[0] && runs[0].context) || (events[0] && events[0].text) || '本次任务', 30);
+  const lines = [
+    '# 思考地图 · ' + new Date().toISOString().slice(0, 10),
+    '',
+    '- 原型版本：' + TL_VERSION,
+    '- 候选 / 簇：' + cs.length + ' / ' + groups.length,
+    '- 执行轮：' + runs.length + '（其中语义视野内 '
+      + runs.filter(r => kept.has(r.seq)).length + ' 轮）',
+    '- 导出时间：' + new Date().toISOString(),
+    '- 说明：本文件是界面已有数据的**只读投影**——候选来自推演'
+      + '（来源 ' + _mmSafe((_lastForecastMeta && _lastForecastMeta.source) || '—', 12) + '），'
+      + '轮次来自真实账本；「已走」按采用路径与候选名匹配推断。'
+      + '不新增完成信号，也不代表用户思考效果已验证（【真人】待验）。',
+    '',
+    '## 脑图（Mermaid）',
+    '',
+    '```mermaid',
+    'mindmap',
+    '  root((' + root + '))',
+  ];
+  groups.forEach((g, gi) => {
+    lines.push('    ' + _mmSafe('簇 ' + (gi + 1), 18));
+    g.forEach(i => {
+      const c = cs[i] || {};
+      lines.push('      ' + _mmSafe(String(c.label || '方向 ' + (i + 1))
+        + (walked(c.label) ? ' 已走' : ''), 34));
+    });
+  });
+  lines.push('```', '', '## 大纲（可编辑）', '');
+  lines.push('- 本次任务：' + _mdOne(root));
+  events.forEach(e => {
+    if (e.kind === 'question') lines.push('  - 提问：' + _mdOne(e.text));
+    else if (e.kind === 'supplement') lines.push('  - 补充：' + _mdOne(e.text));
+  });
+  if (!cs.length) lines.push('  - （本轮没有候选树）');
+  groups.forEach((g, gi) => {
+    lines.push('  - 簇 ' + (gi + 1));
+    g.forEach(i => {
+      const c = cs[i] || {};
+      lines.push('    - ' + _mdOne(c.label || ('方向 ' + (i + 1)))
+        + (walked(c.label) ? '（已走）' : '') + ' · 推演来源 '
+        + _mdOne((_lastForecastMeta && _lastForecastMeta.source) || '—'));
+      if (c.rationale) lines.push('      - 理由：' + _mdOne(c.rationale));
+      if (Array.isArray(c.steps) && c.steps.length)
+        lines.push('      - 做法：' + c.steps.map(_mdOne).join(' / '));
+    });
+  });
+  lines.push('', '## 轮次轨迹（账本投影）', '');
+  if (!runs.length) lines.push('- （还没有执行轮）');
+  runs.forEach(r => {
+    const comp = (COMPLETION_META[r.exec?.completion] || {}).text || r.exec?.completion || '—';
+    const vis = !realSeqs.has(r.seq) ? '不进入摘要'
+      : (kept.has(r.seq) ? '视野内'
+        : '已掉出（第' + (digestDropSeq(r.seq) || '?') + '轮起）');
+    lines.push('- 第 ' + r.seq + ' 轮 · ' + r.status + ' · ' + comp
+      + ' · 来源 ' + _mdOne(r.exec?.source || '—') + ' · ' + vis
+      + (r.parent_run_id ? ' · 承接 ' + r.parent_run_id : ''));
+    lines.push('  - 结论：' + _mdOne(oneLineConclusion(r)));
+    if (r.forecast?.kind) lines.push('  - 推演来源：' + _mdOne(r.forecast.kind));
+  });
+  lines.push('', '---', '',
+    '视野边界按 `digest_kept_seqs`（tail=6 真实轮）只读投影；'
+      + '「模型忘了什么」在此可追溯，但不代表用户已感知。');
+  return lines.join('\n');
+}
+function exportMindmap(){
+  const text = buildMindmapText();
+  if (!text){
+    showToast('还没有可导出的候选树、账本或会话记录', '#ffb13d'); return '';
+  }
+  downloadTextFile(text, '思考地图-' + new Date().toISOString().slice(0, 10) + '.md',
+    'text/markdown;charset=utf-8');
+  showToast('已导出思考地图 .md（脑图 + 大纲 + 轮次轨迹，只读投影）', '#34f5a0');
+  return text;
+}
+document.getElementById('tlExportMindmap')?.addEventListener('click', exportMindmap);
 
 /* ── v0.9.35 发现1：把多轮真实成果综合成一份可直接交付的终版 ──────────
    与「汇总成果 .md」（逐轮原文拼接）不同：这里把所有真实轮次的产出作为素材，
@@ -9465,6 +9619,9 @@ init();
                synthFlags:data.runs.map(r => ({ seq:r.seq, synthesized:!!r.exec.synthesized })),
                csvHasSynthCol:csvHead.includes('exec_synthesized') };
     },
+    // v0.9.56 思考地图导出：只读文本钩子（不触发下载）
+    exportMindmapForTest(){ return buildMindmapText(); },
+    get mindmapButtonPresent(){ return !!document.getElementById('tlExportMindmap'); },
     get journeyLen(){ return journey.length; },
     // v0.9.37 会话脉络连续性回归钩子
     get inputIntent(){ return _inputIntent; },
@@ -9486,6 +9643,18 @@ init();
     get tlView(){ return _tlView; },
     setTlViewForTest(v){ return setTlView(v); },
     get sessionThreadText(){ return document.getElementById('tlThread')?.textContent || ''; },
+    // v0.9.56 Q-b：语义视野边界——纯只读投影钩子（不改账本/执行链）
+    get digestKeptNow(){ return digestKeptSeqs(); },
+    get sessionThreadHorizon(){
+      const kept = new Set(digestKeptSeqs());
+      const real = new Set(digestRealRuns().map(r => r.seq));
+      return _runs.map(r => ({
+        seq:r.seq,
+        real:real.has(r.seq),
+        inView:kept.has(r.seq),
+        dropSeq: (real.has(r.seq) && !kept.has(r.seq)) ? digestDropSeq(r.seq) : null,
+      }));
+    },
     get compActionLabels2(){ return Array.from(document.querySelectorAll('#rcCompAction button')).map(b=>b.textContent); },
     // 断点2：驱动一次真实 onExecuteDone，验证后端 completion 透传进账本/结果卡
     _injectExecuteDoneForTest(msg){
